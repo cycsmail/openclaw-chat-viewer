@@ -1,18 +1,23 @@
-# OpenClaw Chat Viewer
+# OpenClaw Explorer
 
-Small local viewer for OpenClaw session files.
+Archive-first local viewer for OpenClaw session files.
 
-This is a separate tool, not part of OpenClaw itself. It reads the session data already on your machine and shows it in a browser so you can inspect conversations more easily.
+This is a separate tool, not part of OpenClaw itself. It reads the session data already on your machine, can archive deduplicated snapshots, and shows live sessions and archived history in a browser.
 
-## What it shows
+## What it can do
 
-- sessions found under `agents/*/sessions`
-- active, reset, and deleted transcript files
-- basic session metadata
-- transcript entries for the selected session
-- filters for agent, state, session type, and Telegram id
+- browse live sessions under `agents/*/sessions`
+- archive transcript snapshots into its own local archive
+- stitch active, reset, and deleted Telegram conversations into logical threads
+- group threads into Telegram-centric profiles
+- search archived transcripts with filters
+- compare snapshots with a line diff
+- export stitched threads or Telegram profiles as JSON, Markdown, or HTML
+- show media references found in transcript text
+- add bookmarks and notes for sessions, threads, and profiles
+- show an operational dashboard for archive growth and stale live sessions
 
-## What it reads
+## Data sources
 
 By default the app looks in `~/.openclaw`.
 
@@ -23,14 +28,58 @@ Main files:
 
 If your data lives somewhere else, set `OPENCLAW_HOME`.
 
-## What it does not do
+## Archive behavior
 
-- it does not modify your OpenClaw data
-- it does not upload anything
-- it does not need a database
-- it does not require a build step
+The viewer keeps its own optional archive under:
 
-The server binds to `127.0.0.1` by default. It will refuse non-loopback binds unless you explicitly set `ALLOW_REMOTE_BIND=1`.
+- `~/.openclaw/viewer-archive`
+
+It stores:
+
+- `index.json`: archive index, run history, blob metadata, and source fingerprints
+- `annotations.json`: bookmarks and notes
+- `transcripts/...`: archived transcript copies grouped by channel, chat type, Telegram id, and agent
+
+Archive runs are deduplicated. If the same source file has the same content hash, size, and modification time as the last archived version, it is skipped.
+
+The archive supports:
+
+- manual archive runs from the UI
+- optional scheduled runs
+- optional retention pruning for older versions per source
+- optional encrypted blob storage for more sensitive archive copies
+
+## Explorer views
+
+- `Dashboard`: archive growth, thread coverage, agent/variant breakdowns, stale live sessions
+- `Live`: current session files and transcripts
+- `Threads`: stitched archive threads across active/reset/deleted variants
+- `Profiles`: Telegram id rollups across threads and agents
+- `Search`: full-text archive search with server-side filtering
+
+## Security model
+
+- by default the server only binds to `127.0.0.1`
+- non-loopback binds require `ALLOW_REMOTE_BIND=1`
+- remote API access also requires `OPENCLAW_VIEWER_TOKEN`
+- state-changing endpoints only accept loopback clients and require an action header
+- archive blobs can be encrypted with `OPENCLAW_ARCHIVE_MODE=sensitive`
+
+Static UI assets are still served without a token so a remote browser can load the app shell, but archive data stays behind API token checks.
+
+## Configuration
+
+Optional environment variables:
+
+- `OPENCLAW_HOME`: override the OpenClaw data directory
+- `HOST`: bind host, default `127.0.0.1`
+- `PORT`: preferred starting port, default `48312`
+- `ALLOW_REMOTE_BIND=1`: allow non-loopback binding
+- `OPENCLAW_VIEWER_TOKEN`: token required for remote API access
+- `OPENCLAW_ARCHIVE_INTERVAL_MINUTES`: scheduled archive interval, for example `720`
+- `OPENCLAW_ARCHIVE_KEEP_LATEST`: default keep count for prune operations
+- `OPENCLAW_ARCHIVE_MODE=sensitive`: encrypt archive blobs at rest
+- `OPENCLAW_ARCHIVE_SECRET`: secret used for sensitive archive mode
 
 ## Run it
 
@@ -39,12 +88,6 @@ Recommended:
 ```bash
 ./start-viewer.sh
 ```
-
-The script will:
-
-- use `OPENCLAW_HOME` if it is already set and valid
-- otherwise use `~/.openclaw` if present
-- otherwise ask you for the OpenClaw directory
 
 Manual start:
 
@@ -58,29 +101,47 @@ Manual start with a custom data directory:
 OPENCLAW_HOME=/path/to/.openclaw npm start
 ```
 
-When it starts, it prints a local URL such as:
+Scheduled archive every 12 hours:
+
+```bash
+OPENCLAW_ARCHIVE_INTERVAL_MINUTES=720 npm start
+```
+
+Sensitive archive mode:
+
+```bash
+OPENCLAW_ARCHIVE_MODE=sensitive OPENCLAW_ARCHIVE_SECRET=change-me npm start
+```
+
+If it starts successfully, it prints a URL such as:
 
 ```text
 OpenClaw Chat Viewer listening on http://127.0.0.1:48312
 ```
 
-If `48312` is busy, it will move to the next free port.
+## Test it
 
-## Requirements
+```bash
+npm test
+```
 
-- Node.js
-- an existing OpenClaw data directory with `agents/*/sessions`
+The current test suite covers:
+
+- archive dedupe and retention pruning
+- thread/profile stitching
+- search, transcript reads, diff, and export generation
+- remote-read token checks and loopback-only write protection
+- sensitive archive encryption and decryption
 
 ## Project files
 
-- `server.mjs`: local HTTP server and session reader
+- `server.mjs`: local HTTP server, archive engine, stitching, search, export, and API logic
 - `start-viewer.sh`: helper script for locating the OpenClaw directory
 - `public/index.html`: page shell
-- `public/app.js`: filtering and transcript rendering
+- `public/app.js`: explorer UI logic
 - `public/style.css`: styles
+- `test/server.test.mjs`: fixture-based regression tests
 
 ## Notes
 
-This tool is for local inspection. Session data may contain sensitive chat history, names, ids, and internal labels, so treat it accordingly.
-
-If the viewer starts but shows nothing, the usual cause is that `OPENCLAW_HOME` points to the wrong directory or the expected `agents/*/sessions` files are not there.
+This tool is for local inspection and archiving. Session data may contain sensitive chat history, names, ids, attachments, and internal labels, so treat both the live OpenClaw data and the viewer archive accordingly.

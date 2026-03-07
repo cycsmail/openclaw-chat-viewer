@@ -3,73 +3,154 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>OpenClaw Chat Viewer</title>
+    <title>OpenClaw Explorer</title>
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <p class="eyebrow">Local Viewer</p>
-          <h1>OpenClaw Chat Viewer</h1>
-          <p class="muted">Live view of session indexes and transcript files from `.openclaw/agents/*/sessions`.</p>
+          <p class="eyebrow">Archive-First Viewer</p>
+          <h1>OpenClaw Explorer</h1>
+          <p class="muted">Live sessions, archived snapshots, stitched Telegram threads, search, exports, notes, and operational visibility.</p>
         </div>
+
+        <nav class="mode-nav">
+          <button id="modeDashboard" type="button" class="mode-button">Dashboard</button>
+          <button id="modeLive" type="button" class="mode-button">Live</button>
+          <button id="modeThreads" type="button" class="mode-button">Threads</button>
+          <button id="modeProfiles" type="button" class="mode-button">Profiles</button>
+          <button id="modeSearch" type="button" class="mode-button">Search</button>
+        </nav>
 
         <div class="controls">
           <label>
-            <span>Search</span>
-            <input id="searchInput" type="search" placeholder="agent, channel, snippet">
+            <span>Search / filter</span>
+            <input id="queryInput" type="search" placeholder="telegram id, session key, note, excerpt">
           </label>
-          <label>
-            <span>Agent</span>
-            <select id="agentFilter"></select>
-          </label>
-          <label>
-            <span>State</span>
-            <select id="variantFilter">
-              <option value="all">All files</option>
-              <option value="active">Active</option>
-              <option value="reset">Reset history</option>
-              <option value="deleted">Deleted history</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label>
-            <span>Session type</span>
-            <select id="chatTypeFilter">
-              <option value="all">All types</option>
-              <option value="direct">1 on 1 DM</option>
-              <option value="group">Group</option>
-            </select>
-          </label>
-          <label>
-            <span>Telegram id</span>
-            <select id="telegramIdFilter"></select>
-          </label>
-          <button id="refreshButton" type="button">Refresh</button>
+          <div class="control-row">
+            <label>
+              <span>Agent</span>
+              <select id="agentFilter"></select>
+            </label>
+            <label>
+              <span>Type</span>
+              <select id="chatTypeFilter">
+                <option value="">All</option>
+                <option value="direct">Direct</option>
+                <option value="group">Group</option>
+              </select>
+            </label>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>State</span>
+              <select id="variantFilter">
+                <option value="">All</option>
+                <option value="active">Active</option>
+                <option value="reset">Reset</option>
+                <option value="deleted">Deleted</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
+              <span>Telegram id</span>
+              <select id="telegramIdFilter"></select>
+            </label>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>Updated from</span>
+              <input id="dateFrom" type="date">
+            </label>
+            <label>
+              <span>Updated to</span>
+              <input id="dateTo" type="date">
+            </label>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>Auto refresh</span>
+              <select id="autoRefreshSelect">
+                <option value="0">Off</option>
+                <option value="10000">10s</option>
+                <option value="30000">30s</option>
+                <option value="60000">60s</option>
+              </select>
+            </label>
+            <div class="button-stack">
+              <button id="refreshButton" type="button">Refresh</button>
+              <button id="searchButton" type="button">Run search</button>
+            </div>
+          </div>
         </div>
 
-        <div id="sessionStats" class="stats"></div>
-        <div id="sessionList" class="session-list"></div>
+        <section class="archive-panel">
+          <div class="archive-panel-top">
+            <div>
+              <p class="eyebrow">Archive</p>
+              <p id="archiveSummary" class="muted">Loading archive status...</p>
+            </div>
+            <div class="button-stack compact">
+              <button id="archiveButton" type="button">Archive now</button>
+              <button id="pruneButton" type="button">Prune old</button>
+            </div>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>Keep latest</span>
+              <input id="pruneKeepLatest" type="number" min="1" step="1" value="3">
+            </label>
+            <div class="archive-stats" id="archiveStats"></div>
+          </div>
+          <p id="archiveDetail" class="muted archive-detail"></p>
+        </section>
+
+        <div id="listStats" class="stats"></div>
+        <div id="sidebarList" class="sidebar-list"></div>
       </aside>
 
       <main class="main">
-        <section id="sessionHeader" class="session-header">
-          <p class="placeholder">Select a session file to inspect its transcript.</p>
+        <section id="detailHeader" class="session-header">
+          <p class="placeholder">Loading explorer data...</p>
         </section>
-        <section id="transcript" class="transcript"></section>
+
+        <section class="toolbar">
+          <div class="toolbar-group">
+            <button id="bookmarkButton" type="button">Bookmark</button>
+            <select id="exportFormat">
+              <option value="json">JSON</option>
+              <option value="markdown">Markdown</option>
+              <option value="html">HTML</option>
+            </select>
+            <button id="exportButton" type="button">Export</button>
+          </div>
+          <p id="selectionHint" class="muted"></p>
+        </section>
+
+        <section class="note-panel">
+          <label>
+            <span>Bookmark note</span>
+            <textarea id="noteInput" rows="3" placeholder="Why this session, thread, or profile matters"></textarea>
+          </label>
+          <button id="saveNoteButton" type="button">Save note</button>
+        </section>
+
+        <section id="detailBody" class="content-panel"></section>
+        <section id="auxBody" class="content-panel secondary-panel"></section>
       </main>
     </div>
 
-    <template id="sessionCardTemplate">
-      <button type="button" class="session-card">
-        <div class="session-card-top">
-          <span class="agent-pill"></span>
-          <span class="variant-pill"></span>
+    <template id="listCardTemplate">
+      <button type="button" class="list-card">
+        <div class="list-card-top">
+          <span class="list-card-badge primary"></span>
+          <span class="list-card-badge secondary"></span>
+          <span class="list-card-bookmark" hidden>Bookmarked</span>
         </div>
-        <div class="session-key"></div>
-        <div class="session-meta"></div>
-        <div class="session-snippet"></div>
+        <div class="list-card-title"></div>
+        <div class="list-card-meta"></div>
+        <div class="list-card-snippet"></div>
       </button>
     </template>
 
@@ -79,10 +160,11 @@
           <span class="role-pill"></span>
           <span class="timestamp"></span>
         </div>
-        <pre class="message-body"></pre>
+        <div class="message-attachments"></div>
+        <div class="message-body"></div>
       </article>
     </template>
 
     <script type="module" src="/app.js"></script>
   </body>
-  </html>
+</html>
