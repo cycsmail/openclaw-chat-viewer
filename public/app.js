@@ -63,6 +63,74 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function parseStructuredMessage(text) {
+  const value = String(text || "");
+  const sections = [];
+  const blockPattern = /(Conversation info \(untrusted metadata\)|Sender \(untrusted metadata\)|Chat history since last reply \(untrusted, for context\)):\n```json\n([\s\S]*?)\n```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = blockPattern.exec(value)) !== null) {
+    const [fullMatch, label, json] = match;
+    const leading = value.slice(lastIndex, match.index).trim();
+    if (leading) {
+      sections.push({
+        kind: "text",
+        text: leading
+      });
+    }
+    sections.push({
+      kind: "meta",
+      label,
+      json
+    });
+    lastIndex = match.index + fullMatch.length;
+  }
+
+  const trailing = value.slice(lastIndex).trim();
+  if (trailing) {
+    sections.push({
+      kind: sections.length ? "text" : "plain",
+      text: trailing
+    });
+  }
+
+  if (!sections.length) {
+    return [{ kind: "plain", text: value }];
+  }
+
+  return sections;
+}
+
+function renderMessageBody(container, text) {
+  clearNode(container);
+  const sections = parseStructuredMessage(text);
+
+  for (const section of sections) {
+    if (section.kind === "meta") {
+      const card = document.createElement("section");
+      card.className = "message-metadata";
+
+      const title = document.createElement("div");
+      title.className = "message-metadata-title";
+      title.textContent = section.label;
+
+      const code = document.createElement("pre");
+      code.className = "message-metadata-body";
+      code.textContent = section.json;
+
+      card.append(title, code);
+      container.append(card);
+      continue;
+    }
+
+    const block = document.createElement("pre");
+    block.className = section.kind === "plain" ? "message-body-text" : "message-body-text message-body-text-emphasis";
+    block.textContent = section.text;
+    container.append(block);
+  }
+}
+
 function buildAgentFilter() {
   const agents = [...new Set(state.sessions.map((session) => session.agentId))];
   els.agentFilter.innerHTML = "";
@@ -219,7 +287,7 @@ function renderTranscript(transcript) {
     node.classList.add(`role-${String(item.role).replace(/[^a-z0-9_-]/gi, "").toLowerCase()}`);
     node.querySelector(".role-pill").textContent = item.role || item.entryType;
     node.querySelector(".timestamp").textContent = formatDate(item.timestamp);
-    node.querySelector(".message-body").textContent = item.summary || JSON.stringify(item.raw, null, 2);
+    renderMessageBody(node.querySelector(".message-body"), item.summary || JSON.stringify(item.raw, null, 2));
     els.transcript.append(node);
   }
 }

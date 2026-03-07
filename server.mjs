@@ -130,6 +130,16 @@ function summarizeContentNode(node) {
   return "";
 }
 
+function flattenMessageText(content) {
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .filter((node) => node && typeof node === "object" && node.type === "text" && typeof node.text === "string")
+    .map((node) => node.text)
+    .join("\n");
+}
+
 function summarizeMessage(entry) {
   if (!entry || typeof entry !== "object") {
     return "";
@@ -149,6 +159,65 @@ function summarizeMessage(entry) {
     return "session started";
   }
   return entry.type || "event";
+}
+
+function extractJsonBlock(text, heading) {
+  if (typeof text !== "string" || !text) {
+    return null;
+  }
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`${escapedHeading}:\\s*\`\`\`json\\s*([\\s\\S]*?)\\s*\`\`\``);
+  const match = text.match(pattern);
+  if (!match) {
+    return null;
+  }
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function extractTelegramIdFromLabel(label) {
+  if (typeof label !== "string" || !label) {
+    return null;
+  }
+  const match = label.match(/id:([-\d]+)/);
+  return match ? match[1] : null;
+}
+
+function deriveTranscriptOrigin(entries) {
+  for (const entry of entries) {
+    if (entry?.type !== "message" || entry?.message?.role !== "user") {
+      continue;
+    }
+    const text = flattenMessageText(entry.message.content);
+    if (!text.includes("Conversation info (untrusted metadata)")) {
+      continue;
+    }
+
+    const conversation = extractJsonBlock(text, "Conversation info (untrusted metadata)");
+    const sender = extractJsonBlock(text, "Sender (untrusted metadata)");
+    if (!conversation && !sender) {
+      continue;
+    }
+
+    const isGroupChat = conversation?.is_group_chat === true;
+    const telegramId = isGroupChat
+      ? extractTelegramIdFromLabel(conversation?.conversation_label) || extractTelegramIdFromLabel(conversation?.group_subject)
+      : String(conversation?.sender_id || sender?.id || "").trim() || null;
+
+    return {
+      channel: "telegram",
+      chatType: isGroupChat ? "group" : "direct",
+      telegramId,
+      originLabel: conversation?.conversation_label || sender?.label || conversation?.sender || null,
+      deliveryTo: telegramId ? `telegram:${telegramId}` : null,
+      sessionKey: telegramId ? `telegram:${isGroupChat ? "group" : "direct"}:${telegramId}` : null
+    };
+  }
+
+  return null;
 }
 
 function toMessageView(entry) {
@@ -269,23 +338,26 @@ export async function getSessions() {
       const sessionId = extractSessionId(filename);
       const variant = parseVariant(filename);
       const activeMeta = activeById.get(sessionId) || null;
+      const transcriptOrigin = deriveTranscriptOrigin(entries);
 
       sessions.push({
         id: `${agentId}:${filename}`,
         agentId,
         filename,
         sessionId,
-        sessionKey: activeMeta?.sessionKey || null,
+        sessionKey: activeMeta?.sessionKey || transcriptOrigin?.sessionKey || null,
         variant,
         active: Boolean(activeMeta && variant === "active"),
         startedAt: sessionEntry?.timestamp || null,
         updatedAt: activeMeta?.updatedAt ? new Date(activeMeta.updatedAt).toISOString() : (lastEntry?.timestamp || new Date(fileStat.mtimeMs).toISOString()),
         updatedAtMs: activeMeta?.updatedAt || fileStat.mtimeMs,
-        chatType: activeMeta?.chatType || activeMeta?.origin?.chatType || null,
-        channel: activeMeta?.origin?.provider || activeMeta?.lastChannel || null,
-        telegramId: extractTelegramId(activeMeta?.origin?.to, activeMeta?.lastTo, activeMeta?.sessionKey, activeMeta?.origin?.from),
-        originLabel: activeMeta?.origin?.label || null,
-        deliveryTo: activeMeta?.origin?.to || activeMeta?.lastTo || null,
+        chatType: activeMeta?.chatType || activeMeta?.origin?.chatType || transcriptOrigin?.chatType || null,
+        channel: activeMeta?.origin?.provider || activeMeta?.lastChannel || transcriptOrigin?.channel || null,
+        telegramId:
+          extractTelegramId(activeMeta?.origin?.to, activeMeta?.lastTo, activeMeta?.sessionKey, activeMeta?.origin?.from) ||
+          transcriptOrigin?.telegramId,
+        originLabel: activeMeta?.origin?.label || transcriptOrigin?.originLabel || null,
+        deliveryTo: activeMeta?.origin?.to || activeMeta?.lastTo || transcriptOrigin?.deliveryTo || null,
         model: activeMeta?.model || null,
         messageCount: messageEntries.length,
         eventCount: entries.length,
