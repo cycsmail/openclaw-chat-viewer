@@ -23,12 +23,31 @@ function clearNode(node) {
   node.replaceChildren();
 }
 
+function showError(message) {
+  setPlaceholder(els.sessionHeader, message);
+  setPlaceholder(els.transcript, message);
+}
+
 function setPlaceholder(node, message) {
   clearNode(node);
   const element = document.createElement("p");
   element.className = "placeholder";
   element.textContent = message;
   node.append(element);
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    throw new Error(payload?.error || `Request failed (${response.status})`);
+  }
+  return payload || {};
 }
 
 function formatDate(value) {
@@ -207,21 +226,23 @@ function renderTranscript(transcript) {
 
 async function loadSessions() {
   els.refreshButton.disabled = true;
-  const response = await fetch("/api/sessions", { cache: "no-store" });
-  const payload = await response.json();
-  state.sessions = payload.sessions || [];
-  buildAgentFilter();
-  buildTelegramIdFilter();
-  applyFilters();
-  renderStats();
-  renderSessionList();
-  renderHeader(state.filteredSessions.find((session) => session.id === state.selectedId) || null);
-  if (state.selectedId) {
-    await loadTranscript();
-  } else {
-    renderTranscript([]);
+  try {
+    const payload = await fetchJson("/api/sessions");
+    state.sessions = payload.sessions || [];
+    buildAgentFilter();
+    buildTelegramIdFilter();
+    applyFilters();
+    renderStats();
+    renderSessionList();
+    renderHeader(state.filteredSessions.find((session) => session.id === state.selectedId) || null);
+    if (state.selectedId) {
+      await loadTranscript();
+    } else {
+      renderTranscript([]);
+    }
+  } finally {
+    els.refreshButton.disabled = false;
   }
-  els.refreshButton.disabled = false;
 }
 
 async function loadTranscript() {
@@ -236,8 +257,7 @@ async function loadTranscript() {
     agentId: session.agentId,
     filename: session.filename
   });
-  const response = await fetch(`/api/transcript?${params.toString()}`, { cache: "no-store" });
-  const payload = await response.json();
+  const payload = await fetchJson(`/api/transcript?${params.toString()}`);
   renderTranscript(payload.transcript || []);
 }
 
@@ -258,10 +278,10 @@ for (const element of [els.searchInput, els.agentFilter, els.variantFilter, els.
 
 els.refreshButton.addEventListener("click", () => {
   loadSessions().catch((error) => {
-    setPlaceholder(els.transcript, error.message);
+    showError(error.message);
   });
 });
 
 loadSessions().catch((error) => {
-  setPlaceholder(els.transcript, error.message);
+  showError(error.message);
 });

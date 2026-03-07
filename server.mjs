@@ -11,19 +11,33 @@ const ROOT_DIR = path.resolve(OPENCLAW_HOME);
 const AGENTS_DIR = path.join(ROOT_DIR, "agents");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const HOST = process.env.HOST || "127.0.0.1";
-const BASE_PORT = Number(process.env.PORT || 48312);
 const MAX_PORT_ATTEMPTS = 25;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+const BASE_PORT = resolveBasePort(process.env.PORT);
 
 function buildHeaders(contentType) {
   return {
     "Content-Type": contentType,
     "Cache-Control": "no-store",
     "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY"
   };
+}
+
+function resolveBasePort(configuredPort) {
+  if (!configuredPort) {
+    return 48312;
+  }
+  const parsed = Number(configuredPort);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) {
+    return parsed;
+  }
+  return 48312;
 }
 
 function resolveBindHost(configuredHost) {
@@ -335,54 +349,76 @@ function formatClientError(error) {
   return "Internal server error";
 }
 
+function statusCodeForError(error) {
+  if (!(error instanceof Error)) {
+    return 500;
+  }
+  if (error.message === "Invalid path" || error.message === "Invalid agentId") {
+    return 400;
+  }
+  if ("code" in error && error.code === "ENOENT") {
+    return 404;
+  }
+  return 500;
+}
+
 export function createServer() {
   return http.createServer(async (req, res) => {
-  if (!req.url) {
-    sendText(res, 400, "Missing URL");
-    return;
-  }
-
-  const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${BASE_PORT}`}`);
-
-  try {
-    if (url.pathname === "/api/health") {
-      sendJson(res, 200, { ok: true });
-      return;
-    }
-
-    if (url.pathname === "/api/sessions") {
-      const sessions = await getSessions();
-      sendJson(res, 200, {
-        generatedAt: new Date().toISOString(),
-        count: sessions.length,
-        sessions
+    if (req.method !== "GET") {
+      res.writeHead(405, {
+        ...buildHeaders("text/plain; charset=utf-8"),
+        Allow: "GET"
       });
+      res.end("Method not allowed");
       return;
     }
 
-    if (url.pathname === "/api/transcript") {
-      const agentId = url.searchParams.get("agentId");
-      const filename = url.searchParams.get("filename");
-      if (!agentId || !filename) {
-        sendJson(res, 400, { error: "agentId and filename are required" });
+    if (!req.url) {
+      sendText(res, 400, "Missing URL");
+      return;
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${BASE_PORT}`}`);
+
+    try {
+      if (url.pathname === "/api/health") {
+        sendJson(res, 200, { ok: true });
         return;
       }
-      const transcript = await getTranscript(agentId, filename);
-      sendJson(res, 200, {
-        generatedAt: new Date().toISOString(),
-        agentId,
-        filename,
-        transcript
-      });
-      return;
-    }
 
-    await serveStatic(req, res, url.pathname);
-  } catch (error) {
-    sendJson(res, 500, {
-      error: formatClientError(error)
-    });
-  }
+      if (url.pathname === "/api/sessions") {
+        const sessions = await getSessions();
+        sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          count: sessions.length,
+          sessions
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/transcript") {
+        const agentId = url.searchParams.get("agentId");
+        const filename = url.searchParams.get("filename");
+        if (!agentId || !filename) {
+          sendJson(res, 400, { error: "agentId and filename are required" });
+          return;
+        }
+        const transcript = await getTranscript(agentId, filename);
+        sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          agentId,
+          filename,
+          transcript
+        });
+        return;
+      }
+
+      await serveStatic(req, res, url.pathname);
+    } catch (error) {
+      sendJson(res, statusCodeForError(error), {
+        error: formatClientError(error)
+      });
+    }
   });
 }
 
