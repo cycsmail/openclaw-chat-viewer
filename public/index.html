@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenClaw Chat Viewer</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">Local Viewer</p>
+          <h1>OpenClaw Chat Viewer</h1>
+          <p class="muted">Live view of session indexes and transcript files from `.openclaw/agents/*/sessions`.</p>
+        </div>
+
+        <div class="controls">
+          <label>
+            <span>Search</span>
+            <input id="searchInput" type="search" placeholder="agent, channel, snippet">
+          </label>
+          <label>
+            <span>Agent</span>
+            <select id="agentFilter"></select>
+          </label>
+          <label>
+            <span>State</span>
+            <select id="variantFilter">
+              <option value="all">All files</option>
+              <option value="active">Active</option>
+              <option value="reset">Reset history</option>
+              <option value="deleted">Deleted history</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            <span>Session type</span>
+            <select id="chatTypeFilter">
+              <option value="all">All types</option>
+              <option value="direct">1 on 1 DM</option>
+              <option value="group">Group</option>
+            </select>
+          </label>
+          <label>
+            <span>Telegram id</span>
+            <select id="telegramIdFilter"></select>
+          </label>
+          <button id="refreshButton" type="button">Refresh</button>
+        </div>
+
+        <div id="sessionStats" class="stats"></div>
+        <div id="sessionList" class="session-list"></div>
+      </aside>
+
+      <main class="main">
+        <section id="sessionHeader" class="session-header">
+          <p class="placeholder">Select a session file to inspect its transcript.</p>
+        </section>
+        <section id="transcript" class="transcript"></section>
+      </main>
+    </div>
+
+    <template id="sessionCardTemplate">
+      <button type="button" class="session-card">
+        <div class="session-card-top">
+          <span class="agent-pill"></span>
+          <span class="variant-pill"></span>
+        </div>
+        <div class="session-key"></div>
+        <div class="session-meta"></div>
+        <div class="session-snippet"></div>
+      </button>
+    </template>
+
+    <template id="messageTemplate">
+      <article class="message">
+        <div class="message-meta">
+          <span class="role-pill"></span>
+          <span class="timestamp"></span>
+        </div>
+        <pre class="message-body"></pre>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+  </html>

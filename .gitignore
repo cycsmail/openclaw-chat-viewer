@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+*.log
+
+# Local exports or copied session data should never be committed
+data/
+exports/
+tmp/
+
+# Local environment overrides
+.env
+.env.*
