@@ -427,13 +427,17 @@ function canListen(host, port) {
     const tester = net.createServer();
     tester.once("error", (error) => {
       if (error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE") {
-        resolve(false);
+        resolve({ ok: false, reason: "in_use" });
         return;
       }
-      resolve(false);
+      resolve({
+        ok: false,
+        reason: "error",
+        error
+      });
     });
     tester.once("listening", () => {
-      tester.close(() => resolve(true));
+      tester.close(() => resolve({ ok: true }));
     });
     tester.listen(port, host);
   });
@@ -442,18 +446,41 @@ function canListen(host, port) {
 async function findAvailablePort(host, basePort) {
   for (let offset = 0; offset < MAX_PORT_ATTEMPTS; offset += 1) {
     const port = basePort + offset;
-    if (await canListen(host, port)) {
+    const result = await canListen(host, port);
+    if (result.ok) {
       return port;
+    }
+    if (result.reason === "error") {
+      const bindError = result.error;
+      const code = bindError && typeof bindError === "object" && "code" in bindError ? bindError.code : "UNKNOWN";
+      throw new Error(`Unable to probe ${host}:${port} (${code})`);
     }
   }
   throw new Error(`No free port found from ${basePort} to ${basePort + MAX_PORT_ATTEMPTS - 1}`);
 }
 
 if (process.env.OPENCLAW_MONITOR_NO_LISTEN !== "1" && process.argv[1] === __filename) {
-  const bindHost = resolveBindHost(HOST);
-  const port = await findAvailablePort(bindHost, BASE_PORT);
-  const server = createServer();
-  server.listen(port, bindHost, () => {
-    console.log(`OpenClaw Chat Viewer listening on http://${bindHost}:${port}`);
-  });
+  try {
+    const bindHost = resolveBindHost(HOST);
+    const port = await findAvailablePort(bindHost, BASE_PORT);
+    const server = createServer();
+    server.listen(port, bindHost, () => {
+      console.log(`OpenClaw Chat Viewer listening on http://${bindHost}:${port}`);
+    });
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? error.code : null;
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("(EPERM)")) {
+      console.error("OpenClaw Chat Viewer could not open a local listening socket.");
+      console.error("This environment denied bind/listen permissions for 127.0.0.1.");
+      console.error("Run it in a normal local shell, or use an environment that allows local TCP listeners.");
+      process.exit(1);
+    }
+    console.error(message);
+    if (code) {
+      process.exitCode = 1;
+    } else {
+      process.exit(1);
+    }
+  }
 }
