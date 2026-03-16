@@ -15,12 +15,12 @@
           <p class="muted">Live sessions, archived snapshots, stitched Telegram threads, search, exports, notes, and operational visibility.</p>
         </div>
 
-        <nav class="mode-nav">
-          <button id="modeDashboard" type="button" class="mode-button">Dashboard</button>
-          <button id="modeLive" type="button" class="mode-button">Live</button>
-          <button id="modeThreads" type="button" class="mode-button">Threads</button>
-          <button id="modeProfiles" type="button" class="mode-button">Profiles</button>
-          <button id="modeSearch" type="button" class="mode-button">Search</button>
+        <nav class="mode-nav" aria-label="Explorer views">
+          <button id="modeDashboard" type="button" class="mode-button" aria-label="Dashboard view">Dashboard</button>
+          <button id="modeLive" type="button" class="mode-button" aria-label="Live sessions view">Live</button>
+          <button id="modeThreads" type="button" class="mode-button" aria-label="Stitched threads view">Threads</button>
+          <button id="modeProfiles" type="button" class="mode-button" aria-label="Telegram profiles view">Profiles</button>
+          <button id="modeSearch" type="button" class="mode-button" aria-label="Archive search view">Search</button>
         </nav>
 
         <div class="controls">
@@ -92,8 +92,8 @@
               <p id="archiveSummary" class="muted">Loading archive status...</p>
             </div>
             <div class="button-stack compact">
-              <button id="archiveButton" type="button">Archive now</button>
-              <button id="pruneButton" type="button">Prune old</button>
+              <button id="archiveButton" type="button" aria-label="Run archive now">Archive now</button>
+              <button id="pruneButton" type="button" aria-label="Prune old archive snapshots">Prune old</button>
             </div>
           </div>
           <div class="control-row">
@@ -117,13 +117,13 @@
 
         <section class="toolbar">
           <div class="toolbar-group">
-            <button id="bookmarkButton" type="button">Bookmark</button>
+            <button id="bookmarkButton" type="button" aria-label="Toggle bookmark">Bookmark</button>
             <select id="exportFormat">
               <option value="json">JSON</option>
               <option value="markdown">Markdown</option>
               <option value="html">HTML</option>
             </select>
-            <button id="exportButton" type="button">Export</button>
+            <button id="exportButton" type="button" aria-label="Export current selection">Export</button>
           </div>
           <p id="selectionHint" class="muted"></p>
         </section>
@@ -140,6 +140,8 @@
         <section id="auxBody" class="content-panel secondary-panel"></section>
       </main>
     </div>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite" aria-label="Notifications"></div>
 
     <template id="listCardTemplate">
       <button type="button" class="list-card">

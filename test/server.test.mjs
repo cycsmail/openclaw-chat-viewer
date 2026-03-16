@@ -5,7 +5,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const PROJECT_DIR = "/home/sebastian/openclaw-chat-viewer";
+const PROJECT_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const SERVER_MODULE_URL = pathToFileURL(path.join(PROJECT_DIR, "server.mjs")).href;
 
 async function importServer(envOverrides = {}) {

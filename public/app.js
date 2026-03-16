@@ -1,3 +1,5 @@
+const SIDEBAR_PAGE_SIZE = 100;
+
 const state = {
   overview: null,
   mode: localStorage.getItem("openclawExplorerMode") || "dashboard",
@@ -14,6 +16,7 @@ const state = {
   diffCache: new Map(),
   threadSnapshotSelection: {},
   threadDiffSelection: {},
+  sidebarVisibleCount: SIDEBAR_PAGE_SIZE,
   autoRefreshMs: Number(localStorage.getItem("openclawExplorerAutoRefreshMs") || "0"),
   autoRefreshHandle: null,
   authToken: localStorage.getItem("openclawViewerToken") || ""
@@ -57,6 +60,14 @@ const els = {
   listCardTemplate: document.querySelector("#listCardTemplate"),
   messageTemplate: document.querySelector("#messageTemplate")
 };
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn(...args); }, ms);
+  };
+}
 
 function clearNode(node) {
   node.replaceChildren();
@@ -235,13 +246,19 @@ function itemTimestamp(item) {
   return item.updatedAt || item.lastSeenAt || item.archivedAt || item.startedAt || null;
 }
 
+function getFilterState() {
+  return {
+    agentId: els.agentFilter.value || "",
+    chatType: els.chatTypeFilter.value || "",
+    variant: els.variantFilter.value || "",
+    telegramId: els.telegramIdFilter.value || "",
+    dateFrom: els.dateFrom.value || "",
+    dateTo: els.dateTo.value || "",
+  };
+}
+
 function applyCommonFilters(items, query) {
-  const agentId = els.agentFilter.value || "";
-  const chatType = els.chatTypeFilter.value || "";
-  const variant = els.variantFilter.value || "";
-  const telegramId = els.telegramIdFilter.value || "";
-  const dateFrom = els.dateFrom.value || "";
-  const dateTo = els.dateTo.value || "";
+  const { agentId, chatType, variant, telegramId, dateFrom, dateTo } = getFilterState();
   const fromMs = dateFrom ? Date.parse(dateFrom) : 0;
   const toMs = dateTo ? Date.parse(dateTo) + 86399999 : 0;
 
@@ -305,6 +322,7 @@ function ensureSelections() {
   const items = getCurrentItems();
   if (!items.length) {
     state.selected[state.mode] = null;
+    updateHash();
     return;
   }
   const selectedKey = state.selected[state.mode];
@@ -312,6 +330,7 @@ function ensureSelections() {
   if (!hasSelection) {
     state.selected[state.mode] = getItemKey(items[0], state.mode);
   }
+  updateHash();
 }
 
 function getItemKey(item, mode = state.mode) {
@@ -371,7 +390,9 @@ function populateFilters() {
 
 function renderModeButtons() {
   for (const [mode, button] of Object.entries(els.modeButtons)) {
-    button.classList.toggle("active", mode === state.mode);
+    const isActive = mode === state.mode;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-current", isActive ? "page" : "false");
   }
 }
 
@@ -498,14 +519,22 @@ function renderSidebarList() {
   if (!items.length) {
     const empty = document.createElement("p");
     empty.className = "placeholder";
-    empty.textContent = state.mode === "search" ? "No search results." : "No items match the current filters.";
+    const emptyMessages = {
+      dashboard: "No threads found. Run an archive first to populate the dashboard.",
+      live: "No live sessions found. Check that agents are running.",
+      threads: "No threads match the current filters. Try broadening your selection.",
+      profiles: "No profiles match the current filters. Archive sessions with Telegram metadata first.",
+      search: "No search results. Try different keywords or broaden the filters."
+    };
+    empty.textContent = emptyMessages[state.mode] || "No items match the current filters.";
     els.sidebarList.append(empty);
     return;
   }
 
   const selectedKey = state.selected[state.mode];
+  const visible = items.slice(0, state.sidebarVisibleCount);
 
-  for (const item of items) {
+  for (const item of visible) {
     const card = els.listCardTemplate.content.firstElementChild.cloneNode(true);
     const view = buildCardPresentation(item, state.mode);
     const key = getItemKey(item, state.mode);
@@ -529,6 +558,19 @@ function renderSidebarList() {
       renderApp().catch(showFatalError);
     });
     els.sidebarList.append(card);
+  }
+
+  if (items.length > state.sidebarVisibleCount) {
+    const remaining = items.length - state.sidebarVisibleCount;
+    const showMore = document.createElement("button");
+    showMore.type = "button";
+    showMore.className = "mode-button";
+    showMore.textContent = `Show more (${remaining} remaining)`;
+    showMore.addEventListener("click", () => {
+      state.sidebarVisibleCount += SIDEBAR_PAGE_SIZE;
+      renderSidebarList();
+    });
+    els.sidebarList.append(showMore);
   }
 }
 
@@ -792,6 +834,33 @@ async function fetchSnapshotDiff(snapshotA, snapshotB) {
 
 function persistMode() {
   localStorage.setItem("openclawExplorerMode", state.mode);
+  updateHash();
+}
+
+function updateHash() {
+  const selected = state.selected[state.mode];
+  const parts = [state.mode];
+  if (selected) {
+    parts.push(encodeURIComponent(selected));
+  }
+  const hash = `#${parts.join("/")}`;
+  if (location.hash !== hash) {
+    history.replaceState(null, "", hash);
+  }
+}
+
+function restoreFromHash() {
+  const hash = location.hash.replace(/^#/, "");
+  if (!hash) return false;
+  const [mode, ...rest] = hash.split("/");
+  const validModes = ["dashboard", "live", "threads", "profiles", "search"];
+  if (!validModes.includes(mode)) return false;
+  state.mode = mode;
+  const selected = rest.length ? decodeURIComponent(rest.join("/")) : null;
+  if (selected) {
+    state.selected[mode] = selected;
+  }
+  return true;
 }
 
 function persistAutoRefresh() {
@@ -819,14 +888,10 @@ async function refreshData(options = {}) {
 }
 
 async function runSearch(preserveSelection = false) {
+  const filters = getFilterState();
   const params = new URLSearchParams({
     q: els.queryInput.value.trim(),
-    agentId: els.agentFilter.value || "",
-    telegramId: els.telegramIdFilter.value || "",
-    chatType: els.chatTypeFilter.value || "",
-    variant: els.variantFilter.value || "",
-    dateFrom: els.dateFrom.value || "",
-    dateTo: els.dateTo.value || ""
+    ...filters
   });
   const payload = await fetchJson(`/api/archive/search?${params.toString()}`);
   state.searchResults = payload.results || [];
@@ -843,6 +908,15 @@ function setDetailPlaceholder(message) {
   placeholder.className = "placeholder";
   placeholder.textContent = message;
   els.detailBody.append(placeholder);
+}
+
+function setDetailLoading(message = "Loading...") {
+  clearNode(els.detailBody);
+  clearNode(els.auxBody);
+  const loader = document.createElement("p");
+  loader.className = "placeholder loading-pulse";
+  loader.textContent = message;
+  els.detailBody.append(loader);
 }
 
 function renderDashboard() {
@@ -890,6 +964,7 @@ async function renderLiveDetail() {
     ["File", session.filename]
   ]);
   updateActionState();
+  setDetailLoading("Loading transcript...");
   const detail = await fetchLiveTranscript(session);
   renderTranscript(els.detailBody, detail.transcript, []);
   clearNode(els.auxBody);
@@ -1014,6 +1089,7 @@ async function renderThreadDetail() {
   const snapshotId = state.threadSnapshotSelection[thread.key] || thread.snapshots[0]?.snapshotId || null;
   if (snapshotId) {
     state.threadSnapshotSelection[thread.key] = snapshotId;
+    setDetailLoading("Loading snapshot...");
     const detail = await fetchArchiveTranscript(snapshotId);
     renderTranscript(els.detailBody, detail.transcript, []);
   } else if (thread.liveSessions.length) {
@@ -1099,7 +1175,7 @@ async function renderSearchDetail() {
     ["Updated", formatDate(result.updatedAt)]
   ]);
   updateActionState();
-
+  setDetailLoading("Loading transcript...");
   const detail = await fetchArchiveTranscript(result.snapshotId);
   renderTranscript(els.detailBody, detail.transcript, state.searchTerms);
   clearNode(els.auxBody);
@@ -1113,7 +1189,7 @@ async function renderCurrentDetail() {
   if (!state.overview) {
     renderHeader("Loading explorer data", "", []);
     updateActionState();
-    setDetailPlaceholder("Loading...");
+    setDetailLoading("Loading explorer data...");
     return;
   }
 
@@ -1213,16 +1289,34 @@ async function pruneArchiveNow() {
   }
 }
 
+function showToast(message, type = "info", duration = 5000) {
+  const container = document.querySelector("#toastContainer");
+  const toast = document.createElement("div");
+  toast.className = `toast${type === "error" ? " toast-error" : ""}`;
+  const text = document.createElement("span");
+  text.textContent = message;
+  toast.append(text);
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "toast-dismiss";
+  dismiss.textContent = "Dismiss";
+  dismiss.addEventListener("click", () => toast.remove());
+  toast.append(dismiss);
+  container.append(toast);
+  if (duration > 0) {
+    setTimeout(() => toast.remove(), duration);
+  }
+}
+
 function showFatalError(error) {
   const message = error instanceof Error ? error.message : String(error);
-  renderHeader("Error", message, []);
-  updateActionState();
-  setDetailPlaceholder(message);
+  showToast(message, "error", 8000);
 }
 
 for (const [mode, button] of Object.entries(els.modeButtons)) {
   button.addEventListener("click", () => {
     state.mode = mode;
+    state.sidebarVisibleCount = SIDEBAR_PAGE_SIZE;
     persistMode();
     if (mode === "search") {
       runSearch().then(renderApp).catch(showFatalError);
@@ -1253,13 +1347,14 @@ els.queryInput.addEventListener("keydown", (event) => {
   }
 });
 
-for (const element of [els.agentFilter, els.chatTypeFilter, els.variantFilter, els.telegramIdFilter, els.dateFrom, els.dateTo, els.queryInput]) {
-  element.addEventListener("input", () => {
-    if (state.mode === "search") {
-      return;
-    }
+const debouncedRenderApp = debounce(() => {
+  if (state.mode !== "search") {
     renderApp().catch(showFatalError);
-  });
+  }
+}, 200);
+
+for (const element of [els.agentFilter, els.chatTypeFilter, els.variantFilter, els.telegramIdFilter, els.dateFrom, els.dateTo, els.queryInput]) {
+  element.addEventListener("input", debouncedRenderApp);
   element.addEventListener("change", () => {
     if (state.mode === "search") {
       return;
@@ -1305,6 +1400,7 @@ els.pruneButton.addEventListener("click", () => {
 });
 
 async function boot() {
+  restoreFromHash();
   await loadOverview();
   if (state.mode === "search") {
     await runSearch();
@@ -1312,5 +1408,20 @@ async function boot() {
   scheduleAutoRefresh();
   await renderApp();
 }
+
+window.addEventListener("hashchange", () => {
+  if (restoreFromHash()) {
+    renderModeButtons();
+    renderApp().catch(showFatalError);
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "k") {
+    event.preventDefault();
+    els.queryInput.focus();
+    els.queryInput.select();
+  }
+});
 
 boot().catch(showFatalError);

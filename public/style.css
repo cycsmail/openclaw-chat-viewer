@@ -53,9 +53,37 @@ button {
   border-color: transparent;
 }
 
+button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+button:active:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+button,
+input,
+select,
+textarea {
+  transition: border-color 0.15s, filter 0.12s, box-shadow 0.15s;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 textarea {
@@ -121,6 +149,12 @@ textarea {
   color: var(--text);
   border: 1px solid var(--line);
   font-size: 0.85rem;
+}
+
+.mode-button:hover:not(.active):not(:disabled) {
+  background: var(--panel-deep);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .mode-button.active {
@@ -231,6 +265,10 @@ textarea {
   gap: 0.45rem;
   text-align: left;
   padding: 0.9rem;
+}
+
+.list-card:hover:not(.selected) {
+  border-color: var(--accent);
 }
 
 .list-card.selected {
@@ -392,6 +430,11 @@ textarea {
   border: 1px solid var(--line);
 }
 
+.thread-link:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+
 .message {
   padding: 0.95rem 1rem;
 }
@@ -484,9 +527,60 @@ mark {
   padding: 0 0.1rem;
 }
 
+.toast-container {
+  position: fixed;
+  bottom: 1.2rem;
+  right: 1.2rem;
+  display: grid;
+  gap: 0.6rem;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 0.8rem 1.1rem;
+  border-radius: 0.8rem;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  font-size: 0.9rem;
+  max-width: 28rem;
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast.toast-error {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.toast-dismiss {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(0.8rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .diff-output {
   display: grid;
   gap: 0.75rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.loading-pulse {
+  animation: pulse 1.4s ease-in-out infinite;
 }
 
 @media (max-width: 1040px) {
@@ -512,5 +606,72 @@ mark {
   .toolbar {
     align-items: start;
     flex-direction: column;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1816;
+    --panel: #262220;
+    --panel-strong: #2e2a27;
+    --panel-deep: #201d1a;
+    --text: #e8e2d9;
+    --muted: #9a8f82;
+    --line: #3d3630;
+    --accent: #d4724a;
+    --accent-soft: #3d2518;
+    --user: #352e1e;
+    --assistant: #1e2e20;
+    --tool: #1e2230;
+    --other: #28272a;
+    --shadow: 0 18px 40px rgba(0, 0, 0, 0.25);
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top left, #2a2419 0, transparent 36rem),
+      linear-gradient(135deg, #1a1816 0%, #1e1b18 32%, #161412 100%);
+  }
+
+  .sidebar {
+    background: rgba(32, 29, 26, 0.88);
+  }
+
+  .list-card-snippet {
+    color: #b0a898;
+  }
+
+  .list-card-badge.secondary {
+    background: #342e24;
+    color: #b0a080;
+  }
+
+  .list-card-bookmark {
+    background: #3d3820;
+    color: #d4c860;
+  }
+
+  .message-body-text-emphasis {
+    background: rgba(0, 0, 0, 0.2);
+    border-color: rgba(212, 114, 74, 0.15);
+  }
+
+  .message-metadata {
+    background: rgba(0, 0, 0, 0.25);
+    border-color: rgba(154, 143, 130, 0.18);
+  }
+
+  .message-metadata-body {
+    background: rgba(0, 0, 0, 0.15);
+    border-color: rgba(154, 143, 130, 0.12);
+  }
+
+  mark {
+    background: #7a6020;
+    color: #f0e8d0;
+  }
+
+  button {
+    color: #faf5ec;
   }
 }

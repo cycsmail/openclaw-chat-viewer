@@ -1,11 +1,14 @@
 {
   "name": "openclaw-chat-viewer",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "dev": "node --watch server.mjs",
+    "test": "node --test",
+    "test:watch": "node --watch --test",
+    "test:coverage": "node --test --experimental-test-coverage"
   }
 }

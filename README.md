@@ -135,12 +135,17 @@ The current test suite covers:
 
 ## Project files
 
-- `server.mjs`: local HTTP server, archive engine, stitching, search, export, and API logic
+- `server.mjs`: HTTP routing, security middleware, static file serving, startup lifecycle
+- `lib/config.mjs`: constants, env var resolution, shared utilities
+- `lib/helpers.mjs`: transcript parsing, metadata extraction, path validation, search, diff, export rendering
+- `lib/archive.mjs`: archive index/annotations I/O, blob storage, dedup
+- `lib/catalog.mjs`: session loading, thread/profile stitching, search, export, archive runs
+- `lib/crypto.mjs`: AES-256-GCM encryption for sensitive archive mode
 - `start-viewer.sh`: helper script for locating the OpenClaw directory
 - `public/index.html`: page shell
 - `public/app.js`: explorer UI logic
-- `public/style.css`: styles
-- `test/server.test.mjs`: fixture-based regression tests
+- `public/style.css`: styles (light + dark mode)
+- `test/`: integration and unit test suites
 
 ## Notes
 

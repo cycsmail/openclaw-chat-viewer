@@ -10,3 +10,4 @@ tmp/
 # Local environment overrides
 .env
 .env.*
+CLAUDE.md
