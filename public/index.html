@@ -21,9 +21,14 @@
           <button id="modeThreads" type="button" class="mode-button" aria-label="Stitched threads view">Threads</button>
           <button id="modeProfiles" type="button" class="mode-button" aria-label="Telegram profiles view">Profiles</button>
           <button id="modeSearch" type="button" class="mode-button" aria-label="Archive search view">Search</button>
+          <button id="modeMachines" type="button" class="mode-button" aria-label="Machine management">Machines</button>
         </nav>
 
         <div class="controls">
+          <label>
+            <span>Machine</span>
+            <select id="machineFilter"></select>
+          </label>
           <label>
             <span>Search / filter</span>
             <input id="queryInput" type="search" placeholder="telegram id, session key, note, excerpt">

@@ -39,8 +39,15 @@ import {
   getSessions, getTranscript, getArchiveStatus,
   runArchive, maybeRunScheduledArchive, getOverview,
   getArchiveTranscript, searchArchive, diffArchiveSnapshots,
-  buildExportPayload, pruneArchive
+  buildExportPayload, pruneArchive,
+  getRemoteSessions, getAllSessions, getOverviewForMachine, getOverviewAll
 } from "./lib/catalog.mjs";
+
+import {
+  loadMachines, saveMachines, addOrUpdateMachine, removeMachine,
+  testMachineConnection, syncMachine, getMachineCachedAgentsDir,
+  uploadSessionData, slugifyMachineName
+} from "./lib/machines.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -159,7 +166,7 @@ async function serveStatic(req, res, pathname) {
   }
 }
 
-export { getSessions, getTranscript, getArchiveStatus, runArchive, maybeRunScheduledArchive, getOverview, getArchiveTranscript, searchArchive, diffArchiveSnapshots, buildExportPayload, pruneArchive };
+export { getSessions, getTranscript, getArchiveStatus, runArchive, maybeRunScheduledArchive, getOverview, getArchiveTranscript, searchArchive, diffArchiveSnapshots, buildExportPayload, pruneArchive, getRemoteSessions, getAllSessions, getOverviewForMachine, getOverviewAll };
 
 export function createServer() {
   return http.createServer(async (req, res) => {
@@ -205,6 +212,52 @@ export function createServer() {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/api/machines") {
+        const machines = await loadMachines();
+        sendJson(res, 200, machines);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/machines") {
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        const machine = await addOrUpdateMachine(body);
+        sendJson(res, 200, { ok: true, machine });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/machines/delete") {
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        const result = await removeMachine(body.id);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/machines/test") {
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        const result = await testMachineConnection(body);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/machines/sync") {
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        const result = await syncMachine(body);
+        sendJson(res, 200, result);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/machines/upload") {
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req, 4 * 1024 * 1024);
+        const result = await uploadSessionData(body.machineId, body.agentId, body.filename, body.content);
+        sendJson(res, 200, result);
+        return;
+      }
+
       if (req.method !== "GET") {
         res.writeHead(405, {
           ...buildHeaders("text/plain; charset=utf-8"),
@@ -220,13 +273,29 @@ export function createServer() {
       }
 
       if (url.pathname === "/api/overview") {
-        const overview = await getOverview();
+        const machineId = url.searchParams.get("machineId") || "";
+        let overview;
+        if (machineId === "all") {
+          overview = await getOverviewAll();
+        } else if (machineId && machineId !== "local") {
+          overview = await getOverviewForMachine(machineId);
+        } else {
+          overview = await getOverview();
+        }
         sendJson(res, 200, overview);
         return;
       }
 
       if (url.pathname === "/api/sessions") {
-        const sessions = await getSessions();
+        const machineId = url.searchParams.get("machineId") || "";
+        let sessions;
+        if (machineId === "all") {
+          sessions = await getAllSessions();
+        } else if (machineId && machineId !== "local") {
+          sessions = await getRemoteSessions(machineId);
+        } else {
+          sessions = await getSessions();
+        }
         sendJson(res, 200, {
           generatedAt: new Date().toISOString(),
           count: sessions.length,
@@ -311,15 +380,20 @@ export function createServer() {
       if (url.pathname === "/api/transcript") {
         const agentId = url.searchParams.get("agentId");
         const filename = url.searchParams.get("filename");
+        const machineId = url.searchParams.get("machineId") || "";
         if (!agentId || !filename) {
           sendJson(res, 400, { error: "agentId and filename are required" });
           return;
         }
-        const transcript = await getTranscript(agentId, filename);
+        const remoteAgentsDir = machineId && machineId !== "local"
+          ? getMachineCachedAgentsDir(machineId)
+          : null;
+        const transcript = await getTranscript(agentId, filename, remoteAgentsDir);
         sendJson(res, 200, {
           generatedAt: new Date().toISOString(),
           agentId,
           filename,
+          machineId: machineId || "local",
           transcript
         });
         return;
@@ -374,7 +448,15 @@ export const __test = {
   statusCodeForError,
   summarizeArchiveStatus,
   toMessageView,
-  updateAnnotation
+  updateAnnotation,
+  loadMachines,
+  addOrUpdateMachine,
+  removeMachine,
+  testMachineConnection,
+  syncMachine,
+  uploadSessionData,
+  slugifyMachineName,
+  getMachineCachedAgentsDir
 };
 
 function startArchiveScheduler() {

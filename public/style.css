@@ -138,7 +138,7 @@ textarea {
 
 .mode-nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.45rem;
   margin: 1.2rem 0;
 }
@@ -583,6 +583,32 @@ mark {
   animation: pulse 1.4s ease-in-out infinite;
 }
 
+.machine-status-online {
+  color: #2d7a3a;
+  font-weight: 700;
+}
+
+.machine-status-offline {
+  color: #8a3e27;
+  font-weight: 700;
+}
+
+.machine-status-syncing {
+  color: #b08a00;
+  font-weight: 700;
+}
+
+.machine-badge {
+  display: inline-flex;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: #e2e7f7;
+  color: #3a4a6a;
+}
+
 @media (max-width: 1040px) {
   .shell {
     grid-template-columns: 1fr;
@@ -673,5 +699,22 @@ mark {
 
   button {
     color: #faf5ec;
+  }
+
+  .machine-status-online {
+    color: #5ac46a;
+  }
+
+  .machine-status-offline {
+    color: #d4724a;
+  }
+
+  .machine-status-syncing {
+    color: #d4b44a;
+  }
+
+  .machine-badge {
+    background: #1e2230;
+    color: #8a9cc0;
   }
 }

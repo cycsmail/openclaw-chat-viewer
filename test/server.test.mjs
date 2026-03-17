@@ -61,7 +61,7 @@ async function createFixture() {
           provider: "telegram",
           chatType: "direct",
           to: "telegram:2009539480",
-          label: "celina jiang"
+          label: "test user"
         },
         lastChannel: "telegram",
         lastTo: "telegram:2009539480",
@@ -78,19 +78,19 @@ async function createFixture() {
   await writeTranscript(activePath, buildTranscript({
     timestampBase: "2026-03-07T05:00:00.000Z",
     senderId: "2009539480",
-    senderName: "celina jiang",
+    senderName: "test user",
     body: `hello before\n[media attached: scan.txt (text/plain) | ${mediaFile}]`
   }));
   await writeTranscript(resetPath, buildTranscript({
     timestampBase: "2026-03-04T01:02:03.000Z",
     senderId: "2009539480",
-    senderName: "celina jiang",
+    senderName: "test user",
     body: "legacy reset transcript"
   }));
   await writeTranscript(financePath, buildTranscript({
     timestampBase: "2026-03-05T04:05:06.000Z",
     senderId: "2009539480",
-    senderName: "celina jiang",
+    senderName: "test user",
     body: "finance follow-up"
   }));
 
@@ -190,7 +190,7 @@ test("archive workflow stitches threads, searches snapshots, exports, and prunes
   await writeTranscript(fixture.activePath, buildTranscript({
     timestampBase: "2026-03-07T06:00:00.000Z",
     senderId: "2009539480",
-    senderName: "celina jiang",
+    senderName: "test user",
     body: `hello after\n[media attached: scan.txt (text/plain) | ${fixture.mediaFile}]`
   }));
 

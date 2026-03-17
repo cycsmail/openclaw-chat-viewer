@@ -3,12 +3,14 @@ const SIDEBAR_PAGE_SIZE = 100;
 const state = {
   overview: null,
   mode: localStorage.getItem("openclawExplorerMode") || "dashboard",
+  machines: [],
   selected: {
     dashboard: null,
     live: null,
     threads: null,
     profiles: null,
-    search: null
+    search: null,
+    machines: null
   },
   searchResults: [],
   searchTerms: [],
@@ -28,8 +30,10 @@ const els = {
     live: document.querySelector("#modeLive"),
     threads: document.querySelector("#modeThreads"),
     profiles: document.querySelector("#modeProfiles"),
-    search: document.querySelector("#modeSearch")
+    search: document.querySelector("#modeSearch"),
+    machines: document.querySelector("#modeMachines")
   },
+  machineFilter: document.querySelector("#machineFilter"),
   queryInput: document.querySelector("#queryInput"),
   agentFilter: document.querySelector("#agentFilter"),
   chatTypeFilter: document.querySelector("#chatTypeFilter"),
@@ -315,6 +319,9 @@ function getCurrentItems() {
   if (state.mode === "search") {
     return applyCommonFilters(state.searchResults, query);
   }
+  if (state.mode === "machines") {
+    return state.machines;
+  }
   return state.overview.dashboard.topThreads || [];
 }
 
@@ -348,6 +355,9 @@ function getItemKey(item, mode = state.mode) {
   }
   if (mode === "search") {
     return item.snapshotId;
+  }
+  if (mode === "machines") {
+    return item.id;
   }
   return item.key || item.id || null;
 }
@@ -453,17 +463,43 @@ function renderListStats(items) {
       ["results", String(items.length)],
       ["terms", String(state.searchTerms.length)],
       ["refresh", formatDurationMs(state.autoRefreshMs)]
+    ],
+    machines: [
+      ["machines", String(items.length)],
+      ["enabled", String(items.filter((m) => m.enabled !== false).length)],
+      ["synced", String(items.filter((m) => m.lastSyncAt).length)]
     ]
   }[state.mode];
 
   els.listStats.innerHTML = stats.map(([label, value]) => `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join("");
 }
 
+function getMachineBadge(item) {
+  const machineId = getSelectedMachineId();
+  if (machineId !== "all" || !item.machineId || item.machineId === "local") {
+    return "";
+  }
+  const machine = state.machines.find((m) => m.id === item.machineId);
+  return machine ? machine.name : item.machineId;
+}
+
 function buildCardPresentation(item, mode) {
+  if (mode === "machines") {
+    const statusLabel = item.id === "local" ? "local" : (item.lastSyncStatus || "unknown");
+    return {
+      primary: item.id,
+      secondary: statusLabel,
+      title: item.name || item.id,
+      meta: item.host ? `${item.user || "user"}@${item.host}:${item.port || 22}` : "Local machine",
+      snippet: item.lastSyncAt ? `Last sync: ${formatDate(item.lastSyncAt)}` : "Never synced",
+      bookmarked: false
+    };
+  }
   if (mode === "live") {
+    const machineBadge = getMachineBadge(item);
     return {
       primary: item.agentId,
-      secondary: item.variant,
+      secondary: machineBadge || item.variant,
       title: item.sessionKey || item.sessionId || item.filename,
       meta: `${item.channel || "unknown"}${item.telegramId ? `:${item.telegramId}` : ""} · ${formatDate(item.updatedAt)}`,
       snippet: item.note || item.lastSnippet || "No preview",
@@ -778,8 +814,14 @@ async function openMediaAttachment(safePath) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+function getSelectedMachineId() {
+  return els.machineFilter?.value || "";
+}
+
 async function loadOverview(options = {}) {
-  const payload = await fetchJson("/api/overview");
+  const machineId = getSelectedMachineId();
+  const machineParam = machineId ? `?machineId=${encodeURIComponent(machineId)}` : "";
+  const payload = await fetchJson(`/api/overview${machineParam}`);
   state.overview = payload;
   populateFilters();
   renderArchiveStatus();
@@ -797,6 +839,9 @@ async function fetchLiveTranscript(session) {
     agentId: session.agentId,
     filename: session.filename
   });
+  if (session.machineId && session.machineId !== "local") {
+    params.set("machineId", session.machineId);
+  }
   const payload = await fetchJson(`/api/transcript?${params.toString()}`);
   const detail = {
     kind: "live",
@@ -853,7 +898,7 @@ function restoreFromHash() {
   const hash = location.hash.replace(/^#/, "");
   if (!hash) return false;
   const [mode, ...rest] = hash.split("/");
-  const validModes = ["dashboard", "live", "threads", "profiles", "search"];
+  const validModes = ["dashboard", "live", "threads", "profiles", "search", "machines"];
   if (!validModes.includes(mode)) return false;
   state.mode = mode;
   const selected = rest.length ? decodeURIComponent(rest.join("/")) : null;
@@ -1185,6 +1230,190 @@ async function renderSearchDetail() {
   }
 }
 
+function renderMachinesDetail() {
+  const machine = getSelectedItem("machines");
+  if (!machine) {
+    renderHeader("Machine Management", "Add, test, and sync remote OpenClaw instances.", []);
+    updateActionState();
+    clearNode(els.detailBody);
+    clearNode(els.auxBody);
+  } else {
+    const details = machine.id === "local"
+      ? [["ID", "local"], ["Status", "Running"]]
+      : [
+          ["ID", machine.id],
+          ["Host", machine.host || "-"],
+          ["User", machine.user || "user"],
+          ["Port", String(machine.port || 22)],
+          ["Home", machine.openclawHome || "~/.openclaw"],
+          ["Last sync", machine.lastSyncAt ? formatDate(machine.lastSyncAt) : "Never"],
+          ["Sync status", machine.lastSyncStatus || "unknown"]
+        ];
+    renderHeader(machine.name || machine.id, machine.host ? `${machine.user || "user"}@${machine.host}` : "Local machine", details);
+    updateActionState();
+    clearNode(els.detailBody);
+    clearNode(els.auxBody);
+
+    if (machine.id !== "local") {
+      const actionsCard = document.createElement("div");
+      actionsCard.className = "inline-section";
+      actionsCard.innerHTML = `
+        <h3>Actions</h3>
+        <div class="inline-form">
+          <button type="button" id="machineTestBtn">Test connection</button>
+          <button type="button" id="machineSyncBtn">Sync now</button>
+          <button type="button" id="machineDeleteBtn">Delete</button>
+        </div>
+        <p id="machineActionResult" class="muted" style="margin-top:0.6rem"></p>
+      `;
+      els.detailBody.append(actionsCard);
+
+      queueMicrotask(() => {
+        const resultEl = actionsCard.querySelector("#machineActionResult");
+        actionsCard.querySelector("#machineTestBtn").addEventListener("click", async () => {
+          resultEl.textContent = "Testing connection...";
+          try {
+            const result = await fetchJson("/api/machines/test", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "machine-test" },
+              body: JSON.stringify(machine)
+            });
+            resultEl.textContent = result.ok
+              ? `Connection OK (${result.latencyMs}ms)`
+              : `Connection failed: ${result.error}`;
+          } catch (err) {
+            resultEl.textContent = `Error: ${err.message}`;
+          }
+        });
+        actionsCard.querySelector("#machineSyncBtn").addEventListener("click", async () => {
+          resultEl.textContent = "Syncing...";
+          try {
+            const result = await fetchJson("/api/machines/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "machine-sync" },
+              body: JSON.stringify(machine)
+            });
+            resultEl.textContent = result.ok
+              ? `Sync complete (${result.filesTransferred} files)`
+              : `Sync failed: ${result.error}`;
+            await loadMachinesList();
+            renderSidebarList();
+          } catch (err) {
+            resultEl.textContent = `Error: ${err.message}`;
+          }
+        });
+        actionsCard.querySelector("#machineDeleteBtn").addEventListener("click", async () => {
+          if (!confirm(`Delete machine "${machine.name}"?`)) return;
+          try {
+            await fetchJson("/api/machines/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "machine-delete" },
+              body: JSON.stringify({ id: machine.id })
+            });
+            state.selected.machines = null;
+            await loadMachinesList();
+            await populateMachineFilter();
+            renderApp().catch(showFatalError);
+          } catch (err) {
+            showToast(`Delete failed: ${err.message}`, "error");
+          }
+        });
+      });
+    }
+  }
+
+  const addCard = document.createElement("div");
+  addCard.className = "inline-section";
+  addCard.innerHTML = `
+    <h3>Add / Edit Machine</h3>
+    <div class="inline-form">
+      <label><span>Name</span><input type="text" id="machineAddName" placeholder="e.g. Trucking"></label>
+      <label><span>Host</span><input type="text" id="machineAddHost" placeholder="192.168.1.10"></label>
+      <label><span>User</span><input type="text" id="machineAddUser" placeholder="ssh username"></label>
+      <label><span>Port</span><input type="number" id="machineAddPort" value="22" min="1" max="65535"></label>
+      <label><span>OpenClaw home</span><input type="text" id="machineAddHome" value="~/.openclaw"></label>
+    </div>
+    <div style="margin-top:0.6rem"><button type="button" id="machineAddBtn">Add machine</button></div>
+    <p id="machineAddResult" class="muted" style="margin-top:0.4rem"></p>
+  `;
+  els.auxBody.append(addCard);
+
+  queueMicrotask(() => {
+    addCard.querySelector("#machineAddBtn").addEventListener("click", async () => {
+      const resultEl = addCard.querySelector("#machineAddResult");
+      const name = addCard.querySelector("#machineAddName").value.trim();
+      const host = addCard.querySelector("#machineAddHost").value.trim();
+      const user = addCard.querySelector("#machineAddUser").value.trim();
+      const port = Number(addCard.querySelector("#machineAddPort").value) || 22;
+      const openclawHome = addCard.querySelector("#machineAddHome").value.trim() || "~/.openclaw";
+      if (!name || !host) {
+        resultEl.textContent = "Name and host are required.";
+        return;
+      }
+      try {
+        await fetchJson("/api/machines", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "machine-add" },
+          body: JSON.stringify({ name, host, user, port, openclawHome })
+        });
+        resultEl.textContent = `Machine "${name}" added.`;
+        await loadMachinesList();
+        await populateMachineFilter();
+        renderSidebarList();
+      } catch (err) {
+        resultEl.textContent = `Error: ${err.message}`;
+      }
+    });
+  });
+
+  const uploadCard = document.createElement("div");
+  uploadCard.className = "inline-section";
+  uploadCard.innerHTML = `
+    <h3>Upload Session Data</h3>
+    <div class="inline-form">
+      <label><span>Machine</span><select id="uploadMachineSelect"></select></label>
+      <label><span>Agent ID</span><input type="text" id="uploadAgentId" placeholder="main"></label>
+      <label><span>File (.jsonl)</span><input type="file" id="uploadFile" accept=".jsonl"></label>
+    </div>
+    <div style="margin-top:0.6rem"><button type="button" id="uploadBtn">Upload</button></div>
+    <p id="uploadResult" class="muted" style="margin-top:0.4rem"></p>
+  `;
+  els.auxBody.append(uploadCard);
+
+  queueMicrotask(() => {
+    const machineSelect = uploadCard.querySelector("#uploadMachineSelect");
+    for (const m of state.machines.filter((m) => m.id !== "local")) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.name || m.id;
+      machineSelect.append(opt);
+    }
+
+    uploadCard.querySelector("#uploadBtn").addEventListener("click", async () => {
+      const resultEl = uploadCard.querySelector("#uploadResult");
+      const machineId = machineSelect.value;
+      const agentId = uploadCard.querySelector("#uploadAgentId").value.trim();
+      const fileInput = uploadCard.querySelector("#uploadFile");
+      if (!machineId || !agentId || !fileInput.files.length) {
+        resultEl.textContent = "Machine, agent ID, and file are required.";
+        return;
+      }
+      const file = fileInput.files[0];
+      const content = await file.text();
+      try {
+        await fetchJson("/api/machines/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "machine-upload" },
+          body: JSON.stringify({ machineId, agentId, filename: file.name, content })
+        });
+        resultEl.textContent = `Uploaded ${file.name} to ${machineId}/${agentId}.`;
+      } catch (err) {
+        resultEl.textContent = `Error: ${err.message}`;
+      }
+    });
+  });
+}
+
 async function renderCurrentDetail() {
   if (!state.overview) {
     renderHeader("Loading explorer data", "", []);
@@ -1207,6 +1436,10 @@ async function renderCurrentDetail() {
   }
   if (state.mode === "profiles") {
     renderProfileDetail();
+    return;
+  }
+  if (state.mode === "machines") {
+    renderMachinesDetail();
     return;
   }
   await renderSearchDetail();
@@ -1363,6 +1596,14 @@ for (const element of [els.agentFilter, els.chatTypeFilter, els.variantFilter, e
   });
 }
 
+if (els.machineFilter) {
+  els.machineFilter.addEventListener("change", () => {
+    state.sidebarVisibleCount = SIDEBAR_PAGE_SIZE;
+    state.detailCache.clear();
+    refreshData({ refreshSearch: state.mode === "search" }).catch(showFatalError);
+  });
+}
+
 els.autoRefreshSelect.value = String(state.autoRefreshMs);
 els.autoRefreshSelect.addEventListener("change", () => {
   state.autoRefreshMs = Number(els.autoRefreshSelect.value || "0");
@@ -1399,8 +1640,32 @@ els.pruneButton.addEventListener("click", () => {
   pruneArchiveNow().catch(showFatalError);
 });
 
+async function loadMachinesList() {
+  try {
+    state.machines = await fetchJson("/api/machines");
+  } catch {
+    state.machines = [{ id: "local", name: "Local", host: null, enabled: true }];
+  }
+}
+
+async function populateMachineFilter() {
+  if (!els.machineFilter) return;
+  const prev = els.machineFilter.value;
+  const options = [`<option value="">Local</option>`, `<option value="all">All machines</option>`];
+  for (const m of state.machines) {
+    if (m.id === "local") continue;
+    options.push(`<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`);
+  }
+  setHtml(els.machineFilter, options.join(""));
+  if (prev && [...els.machineFilter.options].some((o) => o.value === prev)) {
+    els.machineFilter.value = prev;
+  }
+}
+
 async function boot() {
   restoreFromHash();
+  await loadMachinesList();
+  await populateMachineFilter();
   await loadOverview();
   if (state.mode === "search") {
     await runSearch();
