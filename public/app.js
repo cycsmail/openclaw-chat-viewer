@@ -20,6 +20,7 @@ const state = {
   threadSnapshotSelection: {},
   threadDiffSelection: {},
   sidebarVisibleCount: SIDEBAR_PAGE_SIZE,
+  transcriptSortOrder: "asc",
   autoRefreshMs: Number(localStorage.getItem("openclawExplorerAutoRefreshMs") || "0"),
   autoRefreshHandle: null,
   authToken: localStorage.getItem("openclawViewerToken") || "",
@@ -245,15 +246,23 @@ function getFilterState() {
     telegramId: els.telegramIdFilter.value || "",
     dateFrom: els.dateFrom.value || "",
     dateTo: els.dateTo.value || "",
+    machineId: getSelectedMachineId(),
   };
 }
 
 function applyCommonFilters(items, query) {
-  const { agentId, chatType, variant, telegramId, dateFrom, dateTo } = getFilterState();
+  const { agentId, chatType, variant, telegramId, dateFrom, dateTo, machineId } = getFilterState();
   const fromMs = dateFrom ? Date.parse(dateFrom) : 0;
   const toMs = dateTo ? Date.parse(dateTo) + 86399999 : 0;
 
   return items.filter((item) => {
+    if (machineId && machineId !== "all") {
+      const itemMachine = item.machineId || "local";
+      const filterMachine = machineId || "local";
+      if (itemMachine !== filterMachine) {
+        return false;
+      }
+    }
     if (agentId && item.agentId !== agentId) {
       return false;
     }
@@ -783,7 +792,29 @@ function renderTranscript(container, transcript, terms = []) {
     return;
   }
 
-  for (const item of transcript) {
+  let sortOrder = state.transcriptSortOrder || "asc";
+  const sorted = [...transcript];
+  if (sortOrder === "desc") {
+    sorted.reverse();
+  }
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "transcript-sort-bar";
+  const sortBtn = document.createElement("button");
+  sortBtn.type = "button";
+  sortBtn.className = "transcript-sort-btn";
+  sortBtn.textContent = sortOrder === "asc" ? "Oldest first" : "Newest first";
+  sortBtn.addEventListener("click", () => {
+    state.transcriptSortOrder = sortOrder === "asc" ? "desc" : "asc";
+    renderTranscript(container, transcript, terms);
+  });
+  const countLabel = document.createElement("span");
+  countLabel.className = "muted";
+  countLabel.textContent = `${transcript.length} messages`;
+  toolbar.append(sortBtn, countLabel);
+  container.append(toolbar);
+
+  for (const item of sorted) {
     const node = els.messageTemplate.content.firstElementChild.cloneNode(true);
     node.classList.add(`role-${String(item.role).replace(/[^a-z0-9_-]/gi, "").toLowerCase()}`);
     node.querySelector(".role-pill").textContent = item.role || item.entryType;

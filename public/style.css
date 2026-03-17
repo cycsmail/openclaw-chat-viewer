@@ -143,19 +143,32 @@ textarea {
   margin-top: 0.5rem;
 }
 
+.brand-user-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.brand-logout-btn {
+  font-size: 0.75rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--panel-deep);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
 .mode-nav {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
   margin: 1.2rem 0;
 }
 
 .mode-button {
-  padding: 0.65rem 0.45rem;
+  padding: 0.5rem 0.35rem;
   background: var(--panel-strong);
   color: var(--text);
   border: 1px solid var(--line);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
 }
 
 .mode-button:hover:not(.active):not(:disabled) {
@@ -425,6 +438,26 @@ textarea {
   line-height: 1.45;
 }
 
+.transcript-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0;
+}
+
+.transcript-sort-btn {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.7rem;
+  background: var(--panel-deep);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.transcript-sort-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .inline-form {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
@@ -628,7 +661,10 @@ mark {
 }
 
 @media (max-width: 700px) {
-  .mode-nav,
+  .mode-nav {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
   .stats,
   .archive-stats,
   .control-row,

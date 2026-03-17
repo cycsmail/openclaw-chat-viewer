@@ -164,12 +164,11 @@ export function createServer() {
 
     try {
       // --- Auth routes (no session required) ---
-      const isLoginPage = url.pathname === "/login" || url.pathname === "/login.html";
-      const isLoginApi = url.pathname === "/api/auth/login";
-      const isLogoutApi = url.pathname === "/api/auth/logout";
+      const isLoginAsset = url.pathname === "/login" || url.pathname === "/login.html" || url.pathname === "/login.css" || url.pathname === "/login.js";
+      const isAuthApi = url.pathname === "/api/auth/login" || url.pathname === "/api/auth/logout";
       const isHealthApi = url.pathname === "/api/health";
 
-      if (!isLoginPage && !isLoginApi && !isLogoutApi && !isHealthApi) {
+      if (!isLoginAsset && !isAuthApi && !isHealthApi) {
         const token = getSessionCookie(req);
         const session = getSession(token);
         if (!session) {
@@ -391,6 +390,7 @@ export function createServer() {
           variant: url.searchParams.get("variant") || "",
           dateFrom: url.searchParams.get("dateFrom") || "",
           dateTo: url.searchParams.get("dateTo") || "",
+          machineId: url.searchParams.get("machineId") || "",
           limit: url.searchParams.get("limit") || "",
           offset: url.searchParams.get("offset") || ""
         });
