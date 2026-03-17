@@ -53,6 +53,14 @@ const __filename = fileURLToPath(import.meta.url);
 
 let archiveIntervalHandle = null;
 
+async function resolveMachineById(machineId) {
+  if (!machineId) throw new Error("Invalid machineId");
+  const machines = await loadMachines();
+  const machine = machines.find((m) => m.id === machineId);
+  if (!machine || machine.id === "local") throw new Error("Machine not found");
+  return machine;
+}
+
 function ensureStateChangingRequest(req, url) {
   const remoteAddress = req.socket?.remoteAddress || "";
   const isLoopback = isLoopbackAddress(remoteAddress);
@@ -237,7 +245,8 @@ export function createServer() {
       if (req.method === "POST" && url.pathname === "/api/machines/test") {
         ensureStateChangingRequest(req, url);
         const body = await parseJsonRequestBody(req);
-        const result = await testMachineConnection(body);
+        const machine = body.host ? body : await resolveMachineById(body.id);
+        const result = await testMachineConnection(machine);
         sendJson(res, 200, result);
         return;
       }
@@ -245,7 +254,8 @@ export function createServer() {
       if (req.method === "POST" && url.pathname === "/api/machines/sync") {
         ensureStateChangingRequest(req, url);
         const body = await parseJsonRequestBody(req);
-        const result = await syncMachine(body);
+        const machine = body.host ? body : await resolveMachineById(body.id);
+        const result = await syncMachine(machine);
         sendJson(res, 200, result);
         return;
       }
