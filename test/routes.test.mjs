@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { initConfig } from "../lib/config.mjs";
+import { ensureAdminUser } from "../lib/auth.mjs";
 
 const PROJECT_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const SERVER_MODULE_URL = pathToFileURL(path.join(PROJECT_DIR, "server.mjs")).href;
@@ -62,13 +64,33 @@ async function createFixture() {
   const entries = buildTranscript({ timestampBase: "2026-03-07T05:00:00.000Z", senderId: "100", senderName: "test user", body: "route test message" });
   await fs.writeFile(path.join(mainSessionsDir, `${sessionId}.jsonl`), entries.map(e => JSON.stringify(e)).join("\n") + "\n");
 
+  // Ensure admin user exists for session auth
+  process.env.OPENCLAW_HOME = root;
+  initConfig();
+  await ensureAdminUser();
+
   return { root, sessionId };
 }
 
-async function request(httpServer, method, path, { body, headers = {} } = {}) {
+async function loginAndGetCookie(httpServer) {
   const address = httpServer.address();
-  const url = `http://127.0.0.1:${address.port}${path}`;
-  const options = { method, headers: { ...headers } };
+  const loginRes = await fetch(`http://127.0.0.1:${address.port}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin" })
+  });
+  const setCookie = loginRes.headers.get("set-cookie");
+  const match = setCookie.match(/ocv_session=([^;]+)/);
+  return `ocv_session=${match[1]}`;
+}
+
+async function request(httpServer, method, urlPath, { body, headers = {}, cookie } = {}) {
+  const address = httpServer.address();
+  const url = `http://127.0.0.1:${address.port}${urlPath}`;
+  const options = { method, headers: { ...headers }, redirect: "manual" };
+  if (cookie) {
+    options.headers["Cookie"] = cookie;
+  }
   if (body) {
     options.body = JSON.stringify(body);
     options.headers["Content-Type"] = "application/json";
@@ -95,14 +117,16 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
   await new Promise((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => httpServer.close(resolve)));
 
-  await t.test("GET /api/health returns ok", async () => {
+  const cookie = await loginAndGetCookie(httpServer);
+
+  await t.test("GET /api/health returns ok (no auth required)", async () => {
     const res = await request(httpServer, "GET", "/api/health");
     assert.equal(res.status, 200);
     assert.deepEqual(res.json, { ok: true });
   });
 
   await t.test("GET /api/overview returns structured overview", async () => {
-    const res = await request(httpServer, "GET", "/api/overview");
+    const res = await request(httpServer, "GET", "/api/overview", { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.json.liveSessions);
     assert.ok(res.json.threads);
@@ -112,7 +136,7 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
   });
 
   await t.test("GET /api/sessions returns session list", async () => {
-    const res = await request(httpServer, "GET", "/api/sessions");
+    const res = await request(httpServer, "GET", "/api/sessions", { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.json.sessions);
     assert.equal(res.json.count, res.json.sessions.length);
@@ -120,38 +144,39 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
   });
 
   await t.test("GET /api/archive/status returns archive status", async () => {
-    const res = await request(httpServer, "GET", "/api/archive/status");
+    const res = await request(httpServer, "GET", "/api/archive/status", { cookie });
     assert.equal(res.status, 200);
     assert.ok("snapshotCount" in res.json);
   });
 
   await t.test("GET /api/transcript returns transcript for valid params", async () => {
-    const res = await request(httpServer, "GET", `/api/transcript?agentId=main&filename=${fixture.sessionId}.jsonl`);
+    const res = await request(httpServer, "GET", `/api/transcript?agentId=main&filename=${fixture.sessionId}.jsonl`, { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.json.transcript);
     assert.equal(res.json.agentId, "main");
   });
 
   await t.test("GET /api/transcript returns 400 for missing params", async () => {
-    const res = await request(httpServer, "GET", "/api/transcript?agentId=main");
+    const res = await request(httpServer, "GET", "/api/transcript?agentId=main", { cookie });
     assert.equal(res.status, 400);
     assert.ok(res.json.error);
   });
 
   await t.test("GET /api/transcript returns 400 for invalid agentId", async () => {
-    const res = await request(httpServer, "GET", "/api/transcript?agentId=../../../etc&filename=foo.jsonl");
+    const res = await request(httpServer, "GET", "/api/transcript?agentId=../../../etc&filename=foo.jsonl", { cookie });
     assert.equal(res.status, 400);
     assert.match(res.json.error, /Invalid agentId/);
   });
 
   await t.test("POST /api/archive/run requires action header", async () => {
-    const res = await request(httpServer, "POST", "/api/archive/run");
+    const res = await request(httpServer, "POST", "/api/archive/run", { cookie });
     assert.equal(res.status, 403);
     assert.match(res.json.error, /action header/i);
   });
 
   await t.test("POST /api/archive/run works with action header", async () => {
     const res = await request(httpServer, "POST", "/api/archive/run", {
+      cookie,
       headers: { "X-OpenClaw-Action": "archive-run" }
     });
     assert.equal(res.status, 200);
@@ -160,6 +185,7 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
 
   await t.test("POST /api/archive/prune validates keepLatest", async () => {
     const res = await request(httpServer, "POST", "/api/archive/prune", {
+      cookie,
       body: { keepLatest: -1 },
       headers: { "X-OpenClaw-Action": "retention-prune" }
     });
@@ -169,6 +195,7 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
 
   await t.test("POST /api/archive/prune validates non-integer keepLatest", async () => {
     const res = await request(httpServer, "POST", "/api/archive/prune", {
+      cookie,
       body: { keepLatest: 1.5 },
       headers: { "X-OpenClaw-Action": "retention-prune" }
     });
@@ -178,6 +205,7 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
 
   await t.test("POST /api/archive/prune works with valid keepLatest", async () => {
     const res = await request(httpServer, "POST", "/api/archive/prune", {
+      cookie,
       body: { keepLatest: 3 },
       headers: { "X-OpenClaw-Action": "retention-prune" }
     });
@@ -186,7 +214,7 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
   });
 
   await t.test("GET /api/archive/search returns results", async () => {
-    const res = await request(httpServer, "GET", "/api/archive/search?q=route+test");
+    const res = await request(httpServer, "GET", "/api/archive/search?q=route+test", { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.json.results);
     assert.ok(res.json.count >= 0);
@@ -195,92 +223,81 @@ test("HTTP route integration tests", { concurrency: false }, async (t) => {
   });
 
   await t.test("GET /api/archive/transcript returns 400 without snapshotId", async () => {
-    const res = await request(httpServer, "GET", "/api/archive/transcript");
+    const res = await request(httpServer, "GET", "/api/archive/transcript", { cookie });
     assert.equal(res.status, 400);
     assert.match(res.json.error, /snapshotId/);
   });
 
   await t.test("GET /api/archive/diff returns 400 without both snapshot params", async () => {
-    const res = await request(httpServer, "GET", "/api/archive/diff?snapshotA=foo");
+    const res = await request(httpServer, "GET", "/api/archive/diff?snapshotA=foo", { cookie });
     assert.equal(res.status, 400);
     assert.match(res.json.error, /snapshotA and snapshotB/);
   });
 
   await t.test("GET /api/archive/export returns 400 without kind and id", async () => {
-    const res = await request(httpServer, "GET", "/api/archive/export?format=json");
+    const res = await request(httpServer, "GET", "/api/archive/export?format=json", { cookie });
     assert.equal(res.status, 400);
     assert.match(res.json.error, /kind and id/);
   });
 
   await t.test("GET /api/annotations returns annotations", async () => {
-    const res = await request(httpServer, "GET", "/api/annotations");
+    const res = await request(httpServer, "GET", "/api/annotations", { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.json.sessions !== undefined);
   });
 
   await t.test("POST /api/annotations requires action header", async () => {
     const res = await request(httpServer, "POST", "/api/annotations", {
+      cookie,
       body: { bucket: "sessions", key: "test", bookmarked: true, note: "" }
     });
     assert.equal(res.status, 403);
   });
 
   await t.test("GET /api/dashboard returns dashboard data", async () => {
-    const res = await request(httpServer, "GET", "/api/dashboard");
+    const res = await request(httpServer, "GET", "/api/dashboard", { cookie });
     assert.equal(res.status, 200);
     assert.ok("liveCount" in res.json);
     assert.ok("threadCount" in res.json);
   });
 
   await t.test("GET /api/media returns 400 without path", async () => {
-    const res = await request(httpServer, "GET", "/api/media");
+    const res = await request(httpServer, "GET", "/api/media", { cookie });
     assert.equal(res.status, 400);
     assert.match(res.json.error, /path/);
   });
 
   await t.test("PUT returns 405 Method Not Allowed", async () => {
-    const res = await request(httpServer, "PUT", "/api/health");
+    const res = await request(httpServer, "PUT", "/api/health", { cookie });
     assert.equal(res.status, 405);
   });
 
-  await t.test("GET / serves index.html", async () => {
-    const res = await request(httpServer, "GET", "/");
+  await t.test("GET / with session serves index.html", async () => {
+    const res = await request(httpServer, "GET", "/", { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.text.includes("OpenClaw Explorer"));
     assert.ok(res.headers.get("content-security-policy"));
   });
 
-  await t.test("GET /style.css serves CSS", async () => {
-    const res = await request(httpServer, "GET", "/style.css");
+  await t.test("GET / without session redirects to /login", async () => {
+    const res = await request(httpServer, "GET", "/");
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), "/login");
+  });
+
+  await t.test("GET /style.css with session serves CSS", async () => {
+    const res = await request(httpServer, "GET", "/style.css", { cookie });
     assert.equal(res.status, 200);
     assert.ok(res.headers.get("content-type").includes("text/css"));
   });
 
   await t.test("GET /nonexistent returns 404", async () => {
-    const res = await request(httpServer, "GET", "/nonexistent.html");
+    const res = await request(httpServer, "GET", "/nonexistent.html", { cookie });
     assert.equal(res.status, 404);
   });
-});
 
-test("token-protected routes return 401 for remote clients without token", { concurrency: false }, async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-auth-"));
-  await fs.mkdir(path.join(root, "agents", "main", "sessions"), { recursive: true });
-  await fs.writeFile(path.join(root, "agents", "main", "sessions", "sessions.json"), "{}");
-  t.after(async () => {
-    await fs.rm(root, { recursive: true, force: true });
+  await t.test("Unauthenticated API returns 401", async () => {
+    const res = await request(httpServer, "GET", "/api/overview");
+    assert.equal(res.status, 401);
   });
-
-  const server = await importServer({
-    OPENCLAW_HOME: root,
-    OPENCLAW_MONITOR_NO_LISTEN: "1",
-    OPENCLAW_VIEWER_TOKEN: "secret-token"
-  });
-
-  const httpServer = server.createServer();
-  await new Promise((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => httpServer.close(resolve)));
-
-  // Loopback requests without token should still work
-  const healthRes = await request(httpServer, "GET", "/api/health");
-  assert.equal(healthRes.status, 200);
 });

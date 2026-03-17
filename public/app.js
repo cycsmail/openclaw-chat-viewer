@@ -10,7 +10,8 @@ const state = {
     threads: null,
     profiles: null,
     search: null,
-    machines: null
+    machines: null,
+    users: null
   },
   searchResults: [],
   searchTerms: [],
@@ -21,7 +22,8 @@ const state = {
   sidebarVisibleCount: SIDEBAR_PAGE_SIZE,
   autoRefreshMs: Number(localStorage.getItem("openclawExplorerAutoRefreshMs") || "0"),
   autoRefreshHandle: null,
-  authToken: localStorage.getItem("openclawViewerToken") || ""
+  authToken: localStorage.getItem("openclawViewerToken") || "",
+  currentUser: null
 };
 
 const els = {
@@ -31,7 +33,8 @@ const els = {
     threads: document.querySelector("#modeThreads"),
     profiles: document.querySelector("#modeProfiles"),
     search: document.querySelector("#modeSearch"),
-    machines: document.querySelector("#modeMachines")
+    machines: document.querySelector("#modeMachines"),
+    users: document.querySelector("#modeUsers")
   },
   machineFilter: document.querySelector("#machineFilter"),
   queryInput: document.querySelector("#queryInput"),
@@ -62,7 +65,9 @@ const els = {
   noteInput: document.querySelector("#noteInput"),
   saveNoteButton: document.querySelector("#saveNoteButton"),
   listCardTemplate: document.querySelector("#listCardTemplate"),
-  messageTemplate: document.querySelector("#messageTemplate")
+  messageTemplate: document.querySelector("#messageTemplate"),
+  logoutButton: document.querySelector("#logoutButton"),
+  currentUserLabel: document.querySelector("#currentUserLabel")
 };
 
 function debounce(fn, ms) {
@@ -163,33 +168,15 @@ function parseStructuredMessage(text) {
   return sections.length ? sections : [{ kind: "plain", text: value }];
 }
 
-function getAuthHeaders(extra = {}) {
-  const headers = new Headers(extra);
-  if (state.authToken) {
-    headers.set("Authorization", `Bearer ${state.authToken}`);
-  }
-  return headers;
-}
-
-async function promptForToken() {
-  const token = window.prompt("Viewer token required for this remote explorer.");
-  if (!token) {
-    throw new Error("Viewer token is required");
-  }
-  state.authToken = token.trim();
-  localStorage.setItem("openclawViewerToken", state.authToken);
-}
-
-async function fetchWithAuth(url, options = {}, retry = true) {
+async function fetchWithAuth(url, options = {}) {
   const response = await fetch(url, {
     cache: "no-store",
-    ...options,
-    headers: getAuthHeaders(options.headers || {})
+    ...options
   });
 
-  if (response.status === 401 && retry) {
-    await promptForToken();
-    return fetchWithAuth(url, options, false);
+  if (response.status === 401) {
+    location.href = "/login";
+    throw new Error("Session expired");
   }
 
   return response;
@@ -1414,6 +1401,118 @@ function renderMachinesDetail() {
   });
 }
 
+async function renderUsersDetail() {
+  renderHeader("User Management", "Add, edit, and remove users.", []);
+  updateActionState();
+  clearNode(els.detailBody);
+  clearNode(els.auxBody);
+
+  let users = [];
+  try {
+    users = await fetchJson("/api/users");
+  } catch (err) {
+    setDetailPlaceholder("Failed to load users: " + err.message);
+    return;
+  }
+
+  const listCard = document.createElement("div");
+  listCard.className = "inline-section";
+  let tableHtml = "<h3>Users</h3><table style='width:100%;border-collapse:collapse;font-size:0.9rem'>";
+  tableHtml += "<tr><th style='text-align:left;padding:0.4rem'>Username</th><th style='text-align:left;padding:0.4rem'>Role</th><th style='text-align:left;padding:0.4rem'>Enabled</th><th style='text-align:left;padding:0.4rem'>Created</th><th style='padding:0.4rem'></th></tr>";
+  for (const u of users) {
+    tableHtml += `<tr>
+      <td style="padding:0.4rem">${escapeHtml(u.username)}</td>
+      <td style="padding:0.4rem">${escapeHtml(u.role)}</td>
+      <td style="padding:0.4rem">${u.enabled !== false ? "Yes" : "No"}</td>
+      <td style="padding:0.4rem">${u.createdAt ? formatDate(u.createdAt) : "-"}</td>
+      <td style="padding:0.4rem">
+        <button type="button" class="user-delete-btn" data-username="${escapeHtml(u.username)}" style="font-size:0.75rem;padding:0.3rem 0.6rem">Delete</button>
+        <button type="button" class="user-toggle-btn" data-username="${escapeHtml(u.username)}" data-enabled="${u.enabled !== false}" style="font-size:0.75rem;padding:0.3rem 0.6rem">${u.enabled !== false ? "Disable" : "Enable"}</button>
+      </td>
+    </tr>`;
+  }
+  tableHtml += "</table>";
+  listCard.innerHTML = tableHtml;
+  els.detailBody.append(listCard);
+
+  queueMicrotask(() => {
+    for (const btn of listCard.querySelectorAll(".user-delete-btn")) {
+      btn.addEventListener("click", async () => {
+        const username = btn.dataset.username;
+        if (!confirm("Delete user \"" + username + "\"?")) return;
+        try {
+          await fetchJson("/api/users/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "user-delete" },
+            body: JSON.stringify({ username })
+          });
+          showToast("User deleted");
+          await renderUsersDetail();
+        } catch (err) {
+          showToast("Delete failed: " + err.message, "error");
+        }
+      });
+    }
+    for (const btn of listCard.querySelectorAll(".user-toggle-btn")) {
+      btn.addEventListener("click", async () => {
+        const username = btn.dataset.username;
+        const isEnabled = btn.dataset.enabled === "true";
+        try {
+          await fetchJson("/api/users/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "user-update" },
+            body: JSON.stringify({ username, enabled: !isEnabled })
+          });
+          showToast(isEnabled ? "User disabled" : "User enabled");
+          await renderUsersDetail();
+        } catch (err) {
+          showToast("Update failed: " + err.message, "error");
+        }
+      });
+    }
+  });
+
+  const addCard = document.createElement("div");
+  addCard.className = "inline-section";
+  addCard.innerHTML = `
+    <h3>Add User</h3>
+    <div class="inline-form">
+      <label><span>Username</span><input type="text" id="userAddUsername" placeholder="username"></label>
+      <label><span>Password</span><input type="password" id="userAddPassword" placeholder="password"></label>
+      <label><span>Role</span><select id="userAddRole"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+    </div>
+    <div style="margin-top:0.6rem"><button type="button" id="userAddBtn">Add user</button></div>
+    <p id="userAddResult" class="muted" style="margin-top:0.4rem"></p>
+  `;
+  els.auxBody.append(addCard);
+
+  queueMicrotask(() => {
+    addCard.querySelector("#userAddBtn").addEventListener("click", async () => {
+      const resultEl = addCard.querySelector("#userAddResult");
+      const username = addCard.querySelector("#userAddUsername").value.trim();
+      const password = addCard.querySelector("#userAddPassword").value;
+      const role = addCard.querySelector("#userAddRole").value;
+      if (!username || !password) {
+        resultEl.textContent = "Username and password are required.";
+        return;
+      }
+      try {
+        await fetchJson("/api/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "user-add" },
+          body: JSON.stringify({ username, password, role })
+        });
+        resultEl.textContent = "User \"" + username + "\" added.";
+        addCard.querySelector("#userAddUsername").value = "";
+        addCard.querySelector("#userAddPassword").value = "";
+        await renderUsersDetail();
+      } catch (err) {
+        resultEl.textContent = "Error: " + err.message;
+      }
+    });
+  });
+}
+
 async function renderCurrentDetail() {
   if (!state.overview) {
     renderHeader("Loading explorer data", "", []);
@@ -1440,6 +1539,10 @@ async function renderCurrentDetail() {
   }
   if (state.mode === "machines") {
     renderMachinesDetail();
+    return;
+  }
+  if (state.mode === "users") {
+    await renderUsersDetail();
     return;
   }
   await renderSearchDetail();
@@ -1636,6 +1739,17 @@ els.archiveButton.addEventListener("click", () => {
   runArchiveNow().catch(showFatalError);
 });
 
+if (els.logoutButton) {
+  els.logoutButton.addEventListener("click", async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    location.href = "/login";
+  });
+}
+
 els.pruneButton.addEventListener("click", () => {
   pruneArchiveNow().catch(showFatalError);
 });
@@ -1663,6 +1777,21 @@ async function populateMachineFilter() {
 }
 
 async function boot() {
+  try {
+    const me = await fetchJson("/api/auth/me");
+    state.currentUser = me.user;
+  } catch {
+    location.href = "/login";
+    return;
+  }
+
+  if (els.currentUserLabel) {
+    els.currentUserLabel.textContent = state.currentUser.username;
+  }
+  if (els.modeButtons.users && state.currentUser.role === "admin") {
+    els.modeButtons.users.hidden = false;
+  }
+
   restoreFromHash();
   await loadMachinesList();
   await populateMachineFilter();

@@ -13,6 +13,10 @@
           <p class="eyebrow">Archive-First Viewer</p>
           <h1>OpenClaw Explorer</h1>
           <p class="muted">Live sessions, archived snapshots, stitched Telegram threads, search, exports, notes, and operational visibility.</p>
+          <div class="brand-actions">
+            <span id="currentUserLabel" class="muted" style="font-size:0.8rem"></span>
+            <button id="logoutButton" type="button" class="mode-button" style="font-size:0.75rem;padding:0.4rem 0.7rem">Logout</button>
+          </div>
         </div>
 
         <nav class="mode-nav" aria-label="Explorer views">
@@ -22,6 +26,7 @@
           <button id="modeProfiles" type="button" class="mode-button" aria-label="Telegram profiles view">Profiles</button>
           <button id="modeSearch" type="button" class="mode-button" aria-label="Archive search view">Search</button>
           <button id="modeMachines" type="button" class="mode-button" aria-label="Machine management">Machines</button>
+          <button id="modeUsers" type="button" class="mode-button" aria-label="User management" hidden>Users</button>
         </nav>
 
         <div class="controls">

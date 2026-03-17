@@ -43,5 +43,8 @@ pick_openclaw_home() {
 OPENCLAW_HOME="$(pick_openclaw_home)"
 export OPENCLAW_HOME
 
+export ALLOW_REMOTE_BIND="${ALLOW_REMOTE_BIND:-1}"
+export OPENCLAW_ADMIN_PASSWORD="${OPENCLAW_ADMIN_PASSWORD:-changeme}"
+
 cd "${SCRIPT_DIR}"
 exec node server.mjs "$@"

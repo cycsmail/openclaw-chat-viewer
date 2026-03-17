@@ -136,9 +136,16 @@ textarea {
   margin: 0;
 }
 
+.brand-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
 .mode-nav {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
   gap: 0.45rem;
   margin: 1.2rem 0;
 }

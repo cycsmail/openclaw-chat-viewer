@@ -2,15 +2,20 @@ import http from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import net from "node:net";
-import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import {
   initConfig, getHost, getBasePort, MAX_PORT_ATTEMPTS, LOOPBACK_HOSTS, getPublicDir,
-  getArchiveIntervalMs, getViewerAuthToken,
-  buildHeaders, sendJson, sendText, isLoopbackAddress,
+  getArchiveIntervalMs,
+  buildHeaders, sendJson, sendText,
   formatClientError, statusCodeForError, resolveBindHost
 } from "./lib/config.mjs";
+
+import {
+  ensureAdminUser, authenticateUser, createSession, getSession, destroySession,
+  getSessionCookie, setSessionCookie, clearSessionCookie,
+  loadUsers, addUser, updateUser, removeUser
+} from "./lib/auth.mjs";
 
 // Re-initialize config from current process.env on each fresh import.
 // This is needed because tests cache-bust server.mjs but lib/ modules are cached.
@@ -62,11 +67,6 @@ async function resolveMachineById(machineId) {
 }
 
 function ensureStateChangingRequest(req, url) {
-  const remoteAddress = req.socket?.remoteAddress || "";
-  const isLoopback = isLoopbackAddress(remoteAddress);
-  if (!isLoopback) {
-    throw new Error("Archive writes require a loopback client");
-  }
   if (typeof req.headers["x-openclaw-action"] !== "string" || !req.headers["x-openclaw-action"]) {
     throw new Error("Missing archive action header");
   }
@@ -83,32 +83,9 @@ function ensureStateChangingRequest(req, url) {
   }
 }
 
-function getRequestToken(req, url) {
-  const authHeader = req.headers.authorization || "";
-  if (authHeader.startsWith("Bearer ")) {
-    return authHeader.slice("Bearer ".length);
-  }
-  const headerToken = req.headers["x-viewer-token"];
-  if (typeof headerToken === "string" && headerToken) {
-    return headerToken;
-  }
-  return "";
-}
-
-function requireViewerAccess(req, url) {
-  const remoteAddress = req.socket?.remoteAddress || "";
-  if (isLoopbackAddress(remoteAddress)) {
-    return;
-  }
-  const viewerToken = getViewerAuthToken();
-  if (!viewerToken) {
-    throw new Error("Viewer token required for remote access");
-  }
-  const supplied = getRequestToken(req, url);
-  const expected = Buffer.from(viewerToken, "utf8");
-  const actual = Buffer.from(supplied, "utf8");
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-    throw new Error("Invalid viewer token");
+function requireAdmin(session) {
+  if (!session || session.role !== "admin") {
+    throw new Error("Forbidden");
   }
 }
 
@@ -151,7 +128,7 @@ async function serveMediaFile(res, candidatePath) {
 }
 
 async function serveStatic(req, res, pathname) {
-  const localPath = pathname === "/" ? "/index.html" : pathname;
+  const localPath = pathname === "/" ? "/index.html" : (pathname === "/login" ? "/login.html" : pathname);
   const publicDir = getPublicDir();
   const resolved = path.resolve(path.join(publicDir, `.${localPath}`));
   if (!resolved.startsWith(`${publicDir}${path.sep}`) && resolved !== publicDir) {
@@ -186,8 +163,94 @@ export function createServer() {
     const url = new URL(req.url, `http://${req.headers.host || `${getHost()}:${getBasePort()}`}`);
 
     try {
-      if (url.pathname.startsWith("/api/")) {
-        requireViewerAccess(req, url);
+      // --- Auth routes (no session required) ---
+      const isLoginPage = url.pathname === "/login" || url.pathname === "/login.html";
+      const isLoginApi = url.pathname === "/api/auth/login";
+      const isLogoutApi = url.pathname === "/api/auth/logout";
+      const isHealthApi = url.pathname === "/api/health";
+
+      if (!isLoginPage && !isLoginApi && !isLogoutApi && !isHealthApi) {
+        const token = getSessionCookie(req);
+        const session = getSession(token);
+        if (!session) {
+          if (url.pathname.startsWith("/api/")) {
+            throw new Error("Unauthorized");
+          }
+          res.writeHead(302, { Location: "/login" });
+          res.end();
+          return;
+        }
+        req._session = session;
+      }
+
+      // --- Auth API routes ---
+      if (req.method === "POST" && url.pathname === "/api/auth/login") {
+        const body = await parseJsonRequestBody(req);
+        const user = await authenticateUser(body.username, body.password);
+        if (!user) {
+          sendJson(res, 401, { ok: false, error: "Invalid credentials" });
+          return;
+        }
+        const token = createSession(user.username, user.role);
+        setSessionCookie(res, token);
+        sendJson(res, 200, { ok: true, user: { username: user.username, role: user.role } });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+        const token = getSessionCookie(req);
+        if (token) {
+          destroySession(token);
+        }
+        clearSessionCookie(res);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/auth/me") {
+        const session = req._session;
+        if (!session) {
+          throw new Error("Unauthorized");
+        }
+        sendJson(res, 200, { ok: true, user: { username: session.username, role: session.role } });
+        return;
+      }
+
+      // --- User management routes (admin only) ---
+      if (req.method === "GET" && url.pathname === "/api/users") {
+        requireAdmin(req._session);
+        const users = await loadUsers();
+        sendJson(res, 200, users.map((u) => ({
+          username: u.username, role: u.role, enabled: u.enabled, createdAt: u.createdAt
+        })));
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/users") {
+        requireAdmin(req._session);
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        const user = await addUser(body.username, body.password, body.role);
+        sendJson(res, 200, { ok: true, user: { username: user.username, role: user.role, enabled: user.enabled } });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/users/update") {
+        requireAdmin(req._session);
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        const user = await updateUser(body.username, body);
+        sendJson(res, 200, { ok: true, user: { username: user.username, role: user.role, enabled: user.enabled } });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/users/delete") {
+        requireAdmin(req._session);
+        ensureStateChangingRequest(req, url);
+        const body = await parseJsonRequestBody(req);
+        await removeUser(body.username);
+        sendJson(res, 200, { ok: true });
+        return;
       }
 
       if (req.method === "POST" && url.pathname === "/api/archive/run") {
@@ -450,7 +513,7 @@ export const __test = {
   normalizeAnnotationInput,
   parseTranscriptEntries,
   parseVariant,
-  requireViewerAccess,
+  requireAdmin,
   resolveMediaPath,
   resolveSessionsDir,
   sanitizeArchiveSegment,
@@ -461,7 +524,7 @@ export const __test = {
   updateAnnotation,
   loadMachines,
   addOrUpdateMachine,
-  removeMachine,
+  removeMachine: removeMachine,
   testMachineConnection,
   syncMachine,
   uploadSessionData,
@@ -528,10 +591,8 @@ async function findAvailablePort(host, basePort) {
 
 if (process.env.OPENCLAW_MONITOR_NO_LISTEN !== "1" && process.argv[1] === __filename) {
   try {
+    await ensureAdminUser();
     const bindHost = resolveBindHost(getHost());
-    if (!LOOPBACK_HOSTS.has(bindHost) && !getViewerAuthToken()) {
-      throw new Error("Remote bind requires OPENCLAW_VIEWER_TOKEN");
-    }
     startArchiveScheduler();
     const port = await findAvailablePort(bindHost, getBasePort());
     const server = createServer();

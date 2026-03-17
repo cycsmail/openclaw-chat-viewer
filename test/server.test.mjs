@@ -277,7 +277,7 @@ test("archive workflow stitches threads, searches snapshots, exports, and prunes
   assert.equal(postPruneThread.snapshotCount, 2);
 });
 
-test("security helpers require loopback writes and token-protected remote reads", { concurrency: false }, async (t) => {
+test("security helpers enforce action header and origin checks", { concurrency: false }, async (t) => {
   const fixture = await createFixture();
   t.after(async () => {
     await fs.rm(fixture.root, { recursive: true, force: true });
@@ -285,32 +285,11 @@ test("security helpers require loopback writes and token-protected remote reads"
 
   const server = await importServer({
     OPENCLAW_HOME: fixture.root,
-    OPENCLAW_MONITOR_NO_LISTEN: "1",
-    OPENCLAW_VIEWER_TOKEN: "test-token"
+    OPENCLAW_MONITOR_NO_LISTEN: "1"
   });
 
   const url = new URL("http://viewer.local/api/overview");
 
-  assert.throws(
-    () => server.__test.requireViewerAccess({ socket: { remoteAddress: "10.0.0.5" }, headers: {} }, url),
-    /Invalid viewer token/
-  );
-  assert.doesNotThrow(() => server.__test.requireViewerAccess({
-    socket: { remoteAddress: "10.0.0.5" },
-    headers: { authorization: "Bearer test-token" }
-  }, url));
-  assert.doesNotThrow(() => server.__test.requireViewerAccess({
-    socket: { remoteAddress: "127.0.0.1" },
-    headers: {}
-  }, url));
-
-  assert.throws(
-    () => server.__test.ensureStateChangingRequest({
-      socket: { remoteAddress: "10.0.0.5" },
-      headers: { "x-openclaw-action": "archive-run" }
-    }, url),
-    /Archive writes require a loopback client/
-  );
   assert.throws(
     () => server.__test.ensureStateChangingRequest({
       socket: { remoteAddress: "127.0.0.1" },
@@ -345,6 +324,18 @@ test("security helpers require loopback writes and token-protected remote reads"
       origin: "http://viewer.local"
     }
   }, url));
+  assert.doesNotThrow(() => server.__test.ensureStateChangingRequest({
+    socket: { remoteAddress: "10.0.0.5" },
+    headers: {
+      "x-openclaw-action": "archive-run",
+      origin: "http://viewer.local"
+    }
+  }, url));
+
+  // requireAdmin checks
+  assert.throws(() => server.__test.requireAdmin(null), /Forbidden/);
+  assert.throws(() => server.__test.requireAdmin({ role: "viewer" }), /Forbidden/);
+  assert.doesNotThrow(() => server.__test.requireAdmin({ role: "admin" }));
 });
 
 test("sensitive archive mode encrypts blobs while keeping transcripts readable through the API layer", { concurrency: false }, async (t) => {
