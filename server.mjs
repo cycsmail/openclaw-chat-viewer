@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   initConfig, getHost, getBasePort, MAX_PORT_ATTEMPTS, LOOPBACK_HOSTS, getPublicDir,
-  getArchiveIntervalMs,
+  getArchiveIntervalMs, getSyncIntervalMs,
   buildHeaders, sendJson, sendText,
   formatClientError, statusCodeForError, resolveBindHost
 } from "./lib/config.mjs";
@@ -44,14 +44,14 @@ import {
   getSessions, getTranscript, getArchiveStatus,
   runArchive, maybeRunScheduledArchive, getOverview,
   getArchiveTranscript, searchArchive, diffArchiveSnapshots,
-  buildExportPayload, pruneArchive,
+  buildExportPayload, buildBatchExportPayload, pruneArchive,
   getRemoteSessions, getAllSessions, getOverviewForMachine, getOverviewAll
 } from "./lib/catalog.mjs";
 
 import {
   loadMachines, saveMachines, addOrUpdateMachine, removeMachine,
-  testMachineConnection, syncMachine, getMachineCachedAgentsDir,
-  uploadSessionData, slugifyMachineName
+  testMachineConnection, syncMachine, syncAllMachines, getMachineCachedAgentsDir,
+  uploadSessionData, slugifyMachineName, startSyncScheduler
 } from "./lib/machines.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -151,7 +151,7 @@ async function serveStatic(req, res, pathname) {
   }
 }
 
-export { getSessions, getTranscript, getArchiveStatus, runArchive, maybeRunScheduledArchive, getOverview, getArchiveTranscript, searchArchive, diffArchiveSnapshots, buildExportPayload, pruneArchive, getRemoteSessions, getAllSessions, getOverviewForMachine, getOverviewAll };
+export { getSessions, getTranscript, getArchiveStatus, runArchive, maybeRunScheduledArchive, getOverview, getArchiveTranscript, searchArchive, diffArchiveSnapshots, buildExportPayload, buildBatchExportPayload, pruneArchive, getRemoteSessions, getAllSessions, getOverviewForMachine, getOverviewAll };
 
 export function createServer() {
   return http.createServer(async (req, res) => {
@@ -322,6 +322,13 @@ export function createServer() {
         return;
       }
 
+      if (req.method === "POST" && url.pathname === "/api/machines/sync-all") {
+        ensureStateChangingRequest(req, url);
+        const results = await syncAllMachines();
+        sendJson(res, 200, { ok: true, results });
+        return;
+      }
+
       if (req.method === "POST" && url.pathname === "/api/machines/upload") {
         ensureStateChangingRequest(req, url);
         const body = await parseJsonRequestBody(req, 4 * 1024 * 1024);
@@ -430,6 +437,18 @@ export function createServer() {
           return;
         }
         const payload = await buildExportPayload(kind, id, format);
+        res.writeHead(200, {
+          ...buildHeaders(payload.contentType),
+          "Content-Disposition": `attachment; filename="${String(payload.filename).replace(/["\\]/g, "_")}"`
+        });
+        res.end(payload.body);
+        return;
+      }
+
+      if (url.pathname === "/api/archive/export-all") {
+        const machineId = url.searchParams.get("machineId") || "";
+        const format = url.searchParams.get("format") || "json";
+        const payload = await buildBatchExportPayload(machineId, format);
         res.writeHead(200, {
           ...buildHeaders(payload.contentType),
           "Content-Disposition": `attachment; filename="${String(payload.filename).replace(/["\\]/g, "_")}"`
@@ -594,6 +613,8 @@ if (process.env.OPENCLAW_MONITOR_NO_LISTEN !== "1" && process.argv[1] === __file
     await ensureAdminUser();
     const bindHost = resolveBindHost(getHost());
     startArchiveScheduler();
+    const syncMs = getSyncIntervalMs();
+    if (syncMs > 0) startSyncScheduler(syncMs);
     const port = await findAvailablePort(bindHost, getBasePort());
     const server = createServer();
     server.listen(port, bindHost, () => {

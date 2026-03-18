@@ -649,7 +649,53 @@ mark {
   color: #3a4a6a;
 }
 
+.timeline-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0.5rem 0;
+}
+
+.timeline-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.08;
+}
+
+.timeline-cell[data-level="1"] {
+  opacity: 0.25;
+}
+
+.timeline-cell[data-level="2"] {
+  opacity: 0.5;
+}
+
+.timeline-cell[data-level="3"] {
+  opacity: 0.75;
+}
+
+.timeline-cell[data-level="4"] {
+  opacity: 1;
+}
+
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 100;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.85rem;
+  border-radius: 0.7rem;
+}
+
 @media (max-width: 1040px) {
+  .sidebar-toggle {
+    display: block;
+  }
+
   .shell {
     grid-template-columns: 1fr;
   }
@@ -657,6 +703,11 @@ mark {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    padding-top: 2.8rem;
+  }
+
+  .sidebar.collapsed {
+    display: none;
   }
 }
 

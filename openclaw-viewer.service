@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw Chat Viewer
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/openclaw-chat-viewer
+Environment=OPENCLAW_ADMIN_PASSWORD=changeme
+Environment=OPENCLAW_SYNC_INTERVAL_MINUTES=30
+ExecStart=/usr/bin/node server.mjs
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

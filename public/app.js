@@ -68,7 +68,9 @@ const els = {
   listCardTemplate: document.querySelector("#listCardTemplate"),
   messageTemplate: document.querySelector("#messageTemplate"),
   logoutButton: document.querySelector("#logoutButton"),
-  currentUserLabel: document.querySelector("#currentUserLabel")
+  currentUserLabel: document.querySelector("#currentUserLabel"),
+  sidebarToggle: document.querySelector("#sidebarToggle"),
+  sidebar: document.querySelector(".sidebar")
 };
 
 function debounce(fn, ms) {
@@ -238,6 +240,12 @@ function itemTimestamp(item) {
   return item.updatedAt || item.lastSeenAt || item.archivedAt || item.startedAt || null;
 }
 
+function resolveTelegramName(telegramId) {
+  if (!telegramId) return "";
+  const names = state.overview?.telegramNames || {};
+  return names[telegramId] || "";
+}
+
 function getFilterState() {
   return {
     agentId: els.agentFilter.value || "",
@@ -388,7 +396,12 @@ function populateFilters() {
   const selectedTelegram = els.telegramIdFilter.value;
 
   setHtml(els.agentFilter, `<option value="">All</option>${agents.map((agentId) => `<option value="${escapeHtml(agentId)}">${escapeHtml(agentId)}</option>`).join("")}`);
-  setHtml(els.telegramIdFilter, `<option value="">All</option>${telegramIds.map((telegramId) => `<option value="${escapeHtml(telegramId)}">${escapeHtml(telegramId)}</option>`).join("")}`);
+  const names = overview.telegramNames || {};
+  setHtml(els.telegramIdFilter, `<option value="">All</option>${telegramIds.map((telegramId) => {
+    const name = names[telegramId];
+    const label = name ? `${name} (${telegramId})` : telegramId;
+    return `<option value="${escapeHtml(telegramId)}">${escapeHtml(label)}</option>`;
+  }).join("")}`);
 
   els.agentFilter.value = agents.includes(selectedAgent) ? selectedAgent : "";
   els.telegramIdFilter.value = telegramIds.includes(selectedTelegram) ? selectedTelegram : "";
@@ -497,7 +510,7 @@ function buildCardPresentation(item, mode) {
       primary: item.agentId,
       secondary: machineBadge || item.variant,
       title: item.sessionKey || item.sessionId || item.filename,
-      meta: `${item.channel || "unknown"}${item.telegramId ? `:${item.telegramId}` : ""} · ${formatDate(item.updatedAt)}`,
+      meta: `${item.channel || "unknown"}${item.telegramId ? `:${resolveTelegramName(item.telegramId) || item.telegramId}` : ""} · ${formatDate(item.updatedAt)}`,
       snippet: item.note || item.lastSnippet || "No preview",
       bookmarked: item.bookmarked === true
     };
@@ -507,7 +520,7 @@ function buildCardPresentation(item, mode) {
       primary: item.agentId,
       secondary: item.chatType || "thread",
       title: item.label || item.key,
-      meta: `${item.telegramId || "no telegram"} · ${item.snapshotCount} snapshots · ${item.liveSessionCount} live · ${formatDate(item.lastSeenAt)}`,
+      meta: `${resolveTelegramName(item.telegramId) || item.telegramId || "no telegram"} · ${item.snapshotCount} snapshots · ${item.liveSessionCount} live · ${formatDate(item.lastSeenAt)}`,
       snippet: item.note || item.originLabels?.join(" · ") || "No note",
       bookmarked: item.bookmarked === true
     };
@@ -516,8 +529,8 @@ function buildCardPresentation(item, mode) {
     return {
       primary: "profile",
       secondary: `${item.threadKeys.length} threads`,
-      title: item.telegramId,
-      meta: `${item.agents.join(", ") || "no agents"} · ${formatDate(item.lastSeenAt)}`,
+      title: resolveTelegramName(item.telegramId) || item.telegramId,
+      meta: `${item.telegramId} · ${item.agents.join(", ") || "no agents"} · ${formatDate(item.lastSeenAt)}`,
       snippet: item.note || item.labels.join(" · ") || "No labels",
       bookmarked: item.bookmarked === true
     };
@@ -578,6 +591,10 @@ function renderSidebarList() {
     card.querySelector(".list-card-snippet").textContent = view.snippet || "";
     card.querySelector(".list-card-bookmark").hidden = !view.bookmarked;
     card.addEventListener("click", () => {
+      // Auto-collapse sidebar on mobile when a selection is made
+      if (els.sidebar && window.matchMedia("(max-width: 1040px)").matches) {
+        els.sidebar.classList.add("collapsed");
+      }
       if (state.mode === "dashboard") {
         state.mode = "threads";
         state.selected.threads = item.key;
@@ -1003,11 +1020,95 @@ function renderDashboard() {
     ["Telegram profiles", String(dashboard.profileCount)]
   ]);
 
+  // Batch export section
+  {
+    const exportSection = document.createElement("section");
+    exportSection.className = "inline-section";
+    const exportHeading = document.createElement("h3");
+    exportHeading.textContent = "Batch Export";
+    exportSection.append(exportHeading);
+    const exportBtnRow = document.createElement("div");
+    exportBtnRow.style.cssText = "display:flex;gap:0.6rem;flex-wrap:wrap;";
+    for (const [label, format] of [["Export All (JSON)", "json"], ["Export All (Markdown)", "markdown"]]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.addEventListener("click", () => {
+        const machineId = getSelectedMachineId();
+        const url = `/api/archive/export-all?format=${encodeURIComponent(format)}${machineId ? `&machineId=${encodeURIComponent(machineId)}` : ""}`;
+        fetchBlob(url).then(({ blob, filename }) => {
+          const blobUrl = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = blobUrl;
+          anchor.download = filename || `openclaw-export-all.${format === "markdown" ? "md" : format}`;
+          anchor.click();
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+        }).catch(showFatalError);
+      });
+      exportBtnRow.append(btn);
+    }
+    exportSection.append(exportBtnRow);
+    els.detailBody.append(exportSection);
+  }
+
   renderTextSection(els.detailBody, "Agent breakdown", dashboard.agentBreakdown.map((item) => `${item.agentId}: ${item.count}`).join("\n"));
   renderTextSection(els.detailBody, "Variant breakdown", dashboard.variantBreakdown.map((item) => `${item.variant}: ${item.count}`).join("\n"));
 
   renderTextSection(els.auxBody, "Archive growth", dashboard.archiveGrowth.map((item) => `${item.day}: ${item.count}`).join("\n") || "No archive growth data yet.");
   renderTextSection(els.auxBody, "Stale live sessions", dashboard.staleLiveSessions.map((item) => `${item.agentId} · ${item.sessionKey || item.id} · ${formatDate(item.updatedAt)}`).join("\n") || "No stale sessions.");
+
+  // Session Timeline heatmap
+  renderTimeline(els.auxBody, dashboard, state.overview.liveSessions);
+}
+
+function renderTimeline(container, dashboard, liveSessions) {
+  const section = document.createElement("section");
+  section.className = "inline-section";
+  const heading = document.createElement("h3");
+  heading.textContent = "Session Timeline";
+  section.append(heading);
+
+  // Merge archive growth + live session activity into per-day counts
+  const dayCounts = new Map();
+  for (const item of (dashboard.archiveGrowth || [])) {
+    dayCounts.set(item.day, (dayCounts.get(item.day) || 0) + item.count);
+  }
+  for (const session of (liveSessions || [])) {
+    const ts = session.updatedAt || session.startedAt;
+    if (!ts) continue;
+    const day = String(ts).slice(0, 10);
+    if (day) dayCounts.set(day, (dayCounts.get(day) || 0) + 1);
+  }
+
+  // Build last 90 days
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let i = 89; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    days.push({ day: key, count: dayCounts.get(key) || 0 });
+  }
+
+  const maxCount = Math.max(1, ...days.map((d) => d.count));
+
+  const grid = document.createElement("div");
+  grid.className = "timeline-grid";
+  for (const d of days) {
+    const cell = document.createElement("div");
+    cell.className = "timeline-cell";
+    let level = 0;
+    if (d.count > 0) level = 1;
+    if (d.count >= maxCount * 0.33) level = 2;
+    if (d.count >= maxCount * 0.66) level = 3;
+    if (d.count >= maxCount) level = 4;
+    cell.dataset.level = String(level);
+    cell.title = `${d.day}: ${d.count} session${d.count === 1 ? "" : "s"}`;
+    grid.append(cell);
+  }
+
+  section.append(grid);
+  container.append(section);
 }
 
 async function renderLiveDetail() {
@@ -1255,6 +1356,28 @@ function renderMachinesDetail() {
     updateActionState();
     clearNode(els.detailBody);
     clearNode(els.auxBody);
+    const syncAllCard = document.createElement("div");
+    syncAllCard.className = "inline-section";
+    syncAllCard.innerHTML = `<h3>Bulk Actions</h3><div class="inline-form"><button type="button" id="syncAllBtn">Sync all machines</button></div><p id="syncAllResult" class="muted"></p>`;
+    els.detailBody.append(syncAllCard);
+    queueMicrotask(() => {
+      syncAllCard.querySelector("#syncAllBtn").addEventListener("click", async () => {
+        const resultEl = syncAllCard.querySelector("#syncAllResult");
+        resultEl.textContent = "Syncing all machines...";
+        try {
+          const res = await fetchJson("/api/machines/sync-all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-OpenClaw-Action": "machine-sync-all" }
+          });
+          const summary = res.results.map((r) => `${r.name}: ${r.ok ? "ok" : r.error}`).join(", ");
+          resultEl.textContent = summary;
+          await loadMachinesList();
+          renderSidebarList();
+        } catch (err) {
+          resultEl.textContent = `Error: ${err.message}`;
+        }
+      });
+    });
   } else {
     const details = machine.id === "local"
       ? [["ID", "local"], ["Status", "Running"]]
@@ -1784,6 +1907,17 @@ if (els.logoutButton) {
 els.pruneButton.addEventListener("click", () => {
   pruneArchiveNow().catch(showFatalError);
 });
+
+// Mobile sidebar toggle
+if (els.sidebarToggle && els.sidebar) {
+  // Start collapsed on narrow screens
+  if (window.matchMedia("(max-width: 1040px)").matches) {
+    els.sidebar.classList.add("collapsed");
+  }
+  els.sidebarToggle.addEventListener("click", () => {
+    els.sidebar.classList.toggle("collapsed");
+  });
+}
 
 async function loadMachinesList() {
   try {
