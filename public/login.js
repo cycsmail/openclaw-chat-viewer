@@ -1,4 +1,5 @@
 const form = document.getElementById("loginForm");
+if (!form) throw new Error("Login form not found");
 const errorEl = document.getElementById("error");
 const submitBtn = form.querySelector(".login-button");
 const btnText = submitBtn.querySelector(".login-button-text");

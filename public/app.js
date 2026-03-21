@@ -1028,7 +1028,7 @@ function renderDashboard() {
     exportHeading.textContent = "Batch Export";
     exportSection.append(exportHeading);
     const exportBtnRow = document.createElement("div");
-    exportBtnRow.style.cssText = "display:flex;gap:0.6rem;flex-wrap:wrap;";
+    exportBtnRow.className = "inline-btn-row";
     for (const [label, format] of [["Export All (JSON)", "json"], ["Export All (Markdown)", "markdown"]]) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -1405,7 +1405,7 @@ function renderMachinesDetail() {
           <button type="button" id="machineSyncBtn">Sync now</button>
           <button type="button" id="machineDeleteBtn">Delete</button>
         </div>
-        <p id="machineActionResult" class="muted" style="margin-top:0.6rem"></p>
+        <p id="machineActionResult" class="muted form-action-row"></p>
       `;
       els.detailBody.append(actionsCard);
 
@@ -1474,8 +1474,8 @@ function renderMachinesDetail() {
       <label><span>Port</span><input type="number" id="machineAddPort" value="22" min="1" max="65535"></label>
       <label><span>OpenClaw home</span><input type="text" id="machineAddHome" value="~/.openclaw"></label>
     </div>
-    <div style="margin-top:0.6rem"><button type="button" id="machineAddBtn">Add machine</button></div>
-    <p id="machineAddResult" class="muted" style="margin-top:0.4rem"></p>
+    <div class="form-action-row"><button type="button" id="machineAddBtn">Add machine</button></div>
+    <p id="machineAddResult" class="muted form-result"></p>
   `;
   els.auxBody.append(addCard);
 
@@ -1516,8 +1516,8 @@ function renderMachinesDetail() {
       <label><span>Agent ID</span><input type="text" id="uploadAgentId" placeholder="main"></label>
       <label><span>File (.jsonl)</span><input type="file" id="uploadFile" accept=".jsonl"></label>
     </div>
-    <div style="margin-top:0.6rem"><button type="button" id="uploadBtn">Upload</button></div>
-    <p id="uploadResult" class="muted" style="margin-top:0.4rem"></p>
+    <div class="form-action-row"><button type="button" id="uploadBtn">Upload</button></div>
+    <p id="uploadResult" class="muted form-result"></p>
   `;
   els.auxBody.append(uploadCard);
 
@@ -1571,17 +1571,17 @@ async function renderUsersDetail() {
 
   const listCard = document.createElement("div");
   listCard.className = "inline-section";
-  let tableHtml = "<h3>Users</h3><table style='width:100%;border-collapse:collapse;font-size:0.9rem'>";
-  tableHtml += "<tr><th style='text-align:left;padding:0.4rem'>Username</th><th style='text-align:left;padding:0.4rem'>Role</th><th style='text-align:left;padding:0.4rem'>Enabled</th><th style='text-align:left;padding:0.4rem'>Created</th><th style='padding:0.4rem'></th></tr>";
+  let tableHtml = "<h3>Users</h3><table class='user-table'>";
+  tableHtml += "<tr><th style='text-align:left'>Username</th><th style='text-align:left'>Role</th><th style='text-align:left'>Enabled</th><th style='text-align:left'>Created</th><th></th></tr>";
   for (const u of users) {
     tableHtml += `<tr>
-      <td style="padding:0.4rem">${escapeHtml(u.username)}</td>
-      <td style="padding:0.4rem">${escapeHtml(u.role)}</td>
-      <td style="padding:0.4rem">${u.enabled !== false ? "Yes" : "No"}</td>
-      <td style="padding:0.4rem">${u.createdAt ? formatDate(u.createdAt) : "-"}</td>
-      <td style="padding:0.4rem">
-        <button type="button" class="user-delete-btn" data-username="${escapeHtml(u.username)}" style="font-size:0.75rem;padding:0.3rem 0.6rem">Delete</button>
-        <button type="button" class="user-toggle-btn" data-username="${escapeHtml(u.username)}" data-enabled="${u.enabled !== false}" style="font-size:0.75rem;padding:0.3rem 0.6rem">${u.enabled !== false ? "Disable" : "Enable"}</button>
+      <td>${escapeHtml(u.username)}</td>
+      <td>${escapeHtml(u.role)}</td>
+      <td>${u.enabled !== false ? "Yes" : "No"}</td>
+      <td>${u.createdAt ? formatDate(u.createdAt) : "-"}</td>
+      <td>
+        <button type="button" class="user-delete-btn user-action-btn" data-username="${escapeHtml(u.username)}">Delete</button>
+        <button type="button" class="user-toggle-btn user-action-btn" data-username="${escapeHtml(u.username)}" data-enabled="${u.enabled !== false}">${u.enabled !== false ? "Disable" : "Enable"}</button>
       </td>
     </tr>`;
   }
@@ -1635,8 +1635,8 @@ async function renderUsersDetail() {
       <label><span>Password</span><input type="password" id="userAddPassword" placeholder="password"></label>
       <label><span>Role</span><select id="userAddRole"><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
     </div>
-    <div style="margin-top:0.6rem"><button type="button" id="userAddBtn">Add user</button></div>
-    <p id="userAddResult" class="muted" style="margin-top:0.4rem"></p>
+    <div class="form-action-row"><button type="button" id="userAddBtn">Add user</button></div>
+    <p id="userAddResult" class="muted form-result"></p>
   `;
   els.auxBody.append(addCard);
 
@@ -1843,7 +1843,7 @@ const debouncedRenderApp = debounce(() => {
   }
 }, 200);
 
-for (const element of [els.agentFilter, els.chatTypeFilter, els.variantFilter, els.telegramIdFilter, els.dateFrom, els.dateTo, els.queryInput]) {
+for (const element of [els.agentFilter, els.chatTypeFilter, els.variantFilter, els.telegramIdFilter, els.dateFrom, els.dateTo, els.queryInput].filter(Boolean)) {
   element.addEventListener("input", debouncedRenderApp);
   element.addEventListener("change", () => {
     if (state.mode === "search") {

@@ -66,6 +66,14 @@ async function resolveMachineById(machineId) {
   return machine;
 }
 
+async function validateMachineId(machineId) {
+  if (!machineId || machineId === "local" || machineId === "all") return;
+  const machines = await loadMachines();
+  if (!machines.some((m) => m.id === machineId)) {
+    throw new Error("Machine not found");
+  }
+}
+
 function ensureStateChangingRequest(req, url) {
   if (typeof req.headers["x-openclaw-action"] !== "string" || !req.headers["x-openclaw-action"]) {
     throw new Error("Missing archive action header");
@@ -353,6 +361,7 @@ export function createServer() {
 
       if (url.pathname === "/api/overview") {
         const machineId = url.searchParams.get("machineId") || "";
+        await validateMachineId(machineId);
         let overview;
         if (machineId === "all") {
           overview = await getOverviewAll();
@@ -367,6 +376,7 @@ export function createServer() {
 
       if (url.pathname === "/api/sessions") {
         const machineId = url.searchParams.get("machineId") || "";
+        await validateMachineId(machineId);
         let sessions;
         if (machineId === "all") {
           sessions = await getAllSessions();
@@ -477,6 +487,7 @@ export function createServer() {
           sendJson(res, 400, { error: "agentId and filename are required" });
           return;
         }
+        await validateMachineId(machineId);
         const remoteAgentsDir = machineId && machineId !== "local"
           ? getMachineCachedAgentsDir(machineId)
           : null;

@@ -729,6 +729,36 @@ mark {
   }
 }
 
+.inline-btn-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.form-action-row {
+  margin-top: 0.6rem;
+}
+
+.form-result {
+  margin-top: 0.4rem;
+}
+
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.user-table td,
+.user-table th {
+  padding: 0.4rem;
+}
+
+.user-action-btn {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #1a1816;
